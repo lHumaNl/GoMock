@@ -6,6 +6,8 @@ const (
 	ResponseModeSequential ResponseMode = "sequential"
 	ResponseModeRandom     ResponseMode = "random"
 	ResponseModeWeighted   ResponseMode = "weighted"
+
+	TransformerResponseTemplate = "response-template"
 )
 
 type Response struct {
@@ -16,7 +18,17 @@ type Response struct {
 	Body            string
 	BodyFileName    string
 	BodyFileContent []byte
+	Transformers    []string
 	Delay           *Delay
+}
+
+func (r Response) HasTransformer(name string) bool {
+	for _, transformer := range r.Transformers {
+		if transformer == name {
+			return true
+		}
+	}
+	return false
 }
 
 type ResponseSet struct {

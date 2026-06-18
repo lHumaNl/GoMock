@@ -144,6 +144,30 @@ func TestLoadRootRejectsUnsupportedOperators(t *testing.T) {
 	assertErrorContains(t, err, "bad.yaml", "request.headers.X-ID", "unsupported operator")
 }
 
+func TestLoadRootAcceptsMatchesXPathBodyPattern(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/xml.yaml", xmlXPathMapping("//*[local-name()='cus']"))
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	matcher := items[0].Request.BodyPatterns[0]
+	if matcher.Operator != mapping.OperatorMatchesXPath {
+		t.Fatalf("unexpected body matcher: %#v", matcher)
+	}
+}
+
+func TestLoadRootRejectsInvalidXPath(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/bad.yaml", xmlXPathMapping("//*["))
+
+	err := loadRootError(root)
+
+	assertErrorContains(t, err, "bad.yaml", "request.bodyPatterns[0].matchesXPath", "invalid XPath")
+}
+
 func TestLoadRootRejectsInvalidRegex(t *testing.T) {
 	root := newMockRoot(t)
 	writeFile(t, root, "mappings/bad.yaml", "request:\n  urlPattern: '['\nresponse:\n  status: 200\n")
@@ -242,6 +266,37 @@ func TestLoadRootStrictModeRejectsUnknownJSON5Fields(t *testing.T) {
 	assertErrorContains(t, err, "bad.json", "unknown", "extra")
 }
 
+func TestLoadRootPreservesResponseTransformers(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/transformer.json", responseTransformerMapping())
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if items[0].Response.Status != 200 {
+		t.Fatalf("unexpected response: %#v", items[0].Response)
+	}
+	if !items[0].Response.HasTransformer(mapping.TransformerResponseTemplate) {
+		t.Fatalf("expected response-template transformer: %#v", items[0].Response.Transformers)
+	}
+}
+
+func TestLoadRootStrictModeAcceptsResponseTransformers(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/transformer.json", responseTransformerMapping())
+
+	items, err := NewLoader(true).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !items[0].Response.HasTransformer(mapping.TransformerResponseTemplate) {
+		t.Fatalf("expected response-template transformer: %#v", items[0].Response.Transformers)
+	}
+}
+
 func assertLoadedYAMLMapping(t *testing.T, item mapping.Mapping) {
 	t.Helper()
 	if item.ID != "get-users" || item.Request.Method != "GET" {
@@ -315,6 +370,17 @@ func unknownJSON5FieldMapping() string {
 	return `{
   request: {urlPath: '/a', extra: true},
   response: {status: 200},
+}`
+}
+
+func xmlXPathMapping(expression string) string {
+	return "request:\n  urlPath: /soap\n  bodyPatterns:\n    - matchesXPath: \"" + expression + "\"\nresponse:\n  status: 200\n"
+}
+
+func responseTransformerMapping() string {
+	return `{
+  request: {urlPath: '/templated'},
+  response: {status: 200, body: 'ok', transformers: ['response-template']},
 }`
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
 	"github.com/lHumaNl/gomock/internal/domain/matcher"
 	"github.com/lHumaNl/gomock/internal/domain/stub"
+	"github.com/lHumaNl/gomock/internal/responsetemplate"
 )
 
 const (
@@ -173,7 +174,7 @@ func (h *Handler) dispatchStub(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	state.markMatched(matched)
-	h.serveMatched(writer, request, matched)
+	h.serveMatched(writer, request, model, matched, state)
 }
 
 func (h *Handler) handleMetrics(writer http.ResponseWriter, request *http.Request) {
@@ -189,12 +190,25 @@ func (h *Handler) finishRequestMetric(state *requestMetricState, started time.Ti
 		state.status, state.matched, time.Since(started))
 }
 
-func (h *Handler) serveMatched(writer http.ResponseWriter, request *http.Request, matched stub.Match) {
+func (h *Handler) serveMatched(
+	writer http.ResponseWriter,
+	request *http.Request,
+	model matcher.Request,
+	matched stub.Match,
+	state *requestMetricState,
+) {
 	h.logger.DebugContext(request.Context(), "request matched", "stub", matched.MappingID, "variant", matched.VariantName)
-	if !h.applyDelay(request, matched.Response) {
+	response, err := responsetemplate.RenderResponse(matched.Response, model)
+	if err != nil {
+		state.status = http.StatusInternalServerError
+		h.logger.ErrorContext(request.Context(), "response template failed", "error", err)
+		writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "Failed to serve stub"})
 		return
 	}
-	writeResponse(writer, matched.Response)
+	if !h.applyDelay(request, response) {
+		return
+	}
+	writeResponse(writer, response)
 }
 
 func (h *Handler) applyDelay(request *http.Request, response mapping.Response) bool {

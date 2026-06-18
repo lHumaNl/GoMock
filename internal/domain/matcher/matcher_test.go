@@ -96,6 +96,31 @@ func TestRequestMatcherBodyPatterns(t *testing.T) {
 	assertMatched(t, result)
 }
 
+func TestRequestMatcherMatchesXPathBodyPattern(t *testing.T) {
+	item := xmlBodyMapping("//*[local-name()='cus' and normalize-space(text())!='']")
+	body := `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns="urn:test"><soap:Body><ns:cus> C123 </ns:cus></soap:Body></soap:Envelope>`
+
+	result := Match(item, Request{URI: "/soap", Body: []byte(body)})
+
+	assertMatched(t, result)
+}
+
+func TestRequestMatcherReportsXPathNonMatch(t *testing.T) {
+	item := xmlBodyMapping("//customer/id")
+
+	result := Match(item, Request{URI: "/soap", Body: []byte(`<customer><name>Ada</name></customer>`)})
+
+	assertUnmatchedReason(t, result, "expected matchesXPath")
+}
+
+func TestRequestMatcherReportsInvalidXMLForXPath(t *testing.T) {
+	item := xmlBodyMapping("//customer")
+
+	result := Match(item, Request{URI: "/soap", Body: []byte(`<customer>`)})
+
+	assertUnmatchedReason(t, result, "invalid XML")
+}
+
 func TestRequestMatcherReportsUnmatchedReason(t *testing.T) {
 	item := newMapping("reason", 1, mapping.Request{Method: "POST", URLKind: mapping.URLMatchKindURLPath, URLValue: "/orders"})
 
@@ -137,6 +162,16 @@ func newMapping(id string, priority int, request mapping.Request) mapping.Mappin
 
 func urlRequest(kind mapping.URLMatchKind, value string) mapping.Request {
 	return mapping.Request{URLKind: kind, URLValue: value}
+}
+
+func xmlBodyMapping(expression string) mapping.Mapping {
+	return newMapping("xml", 1, mapping.Request{
+		URLKind:  mapping.URLMatchKindURLPath,
+		URLValue: "/soap",
+		BodyPatterns: []mapping.Matcher{
+			{Operator: mapping.OperatorMatchesXPath, Value: expression},
+		},
+	})
 }
 
 func assertMatched(t *testing.T, result MatchResult) {

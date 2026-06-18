@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +96,62 @@ func TestHandlerServesRandomVariants(t *testing.T) {
 	assertBody(t, response, "random")
 }
 
+func TestHandlerRendersResponseTemplateInlineBody(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{newPostStub("templated", "/templated", mapping.Response{
+		Status:       http.StatusOK,
+		Headers:      map[string]string{"X-Echo": "{{jsonPath originalRequest.body '$.path'}}"},
+		Body:         userStyleTemplate(),
+		Transformers: []string{mapping.TransformerResponseTemplate},
+	})})
+
+	response := performRequestWithBody(handler, http.MethodPost, "/templated", requestTemplateBody())
+
+	assertStatus(t, response, http.StatusOK)
+	assertTemplatedJSON(t, response)
+	if response.Header.Get("X-Echo") != "alpha" {
+		t.Fatalf("expected templated X-Echo header, got %q", response.Header.Get("X-Echo"))
+	}
+}
+
+func TestHandlerRendersResponseTemplateBodyFile(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{newPostStub("file-template", "/file-template", mapping.Response{
+		Status:          http.StatusOK,
+		BodyFileName:    "template.json",
+		BodyFileContent: []byte(`{"echo":"{{jsonPath originalRequest.body '$.path'}}"}`),
+		Transformers:    []string{mapping.TransformerResponseTemplate},
+	})})
+
+	response := performRequestWithBody(handler, http.MethodPost, "/file-template", requestTemplateBody())
+
+	assertStatus(t, response, http.StatusOK)
+	assertBody(t, response, `{"echo":"alpha"}`)
+}
+
+func TestHandlerDoesNotRenderTemplateWithoutTransformer(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{newPostStub("static", "/static", mapping.Response{
+		Status: http.StatusOK,
+		Body:   `{{jsonPath originalRequest.body '$.path'}}`,
+	})})
+
+	response := performRequestWithBody(handler, http.MethodPost, "/static", requestTemplateBody())
+
+	assertStatus(t, response, http.StatusOK)
+	assertBody(t, response, `{{jsonPath originalRequest.body '$.path'}}`)
+}
+
+func TestHandlerReturnsErrorForInvalidResponseTemplate(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{newPostStub("bad-template", "/bad-template", mapping.Response{
+		Status:       http.StatusOK,
+		Body:         `{{jsonPath originalRequest.body '$['}}`,
+		Transformers: []string{mapping.TransformerResponseTemplate},
+	})})
+
+	response := performRequestWithBody(handler, http.MethodPost, "/bad-template", requestTemplateBody())
+
+	assertStatus(t, response, http.StatusInternalServerError)
+	assertBodyContains(t, response, "Failed to serve stub")
+}
+
 func TestHandlerAppliesFixedDelay(t *testing.T) {
 	handler := newTestHandler([]mapping.Mapping{newStub("slow", "/slow", mapping.Response{
 		Status: http.StatusOK,
@@ -146,6 +204,11 @@ func newStub(id string, path string, response mapping.Response) mapping.Mapping 
 		URLKind: mapping.URLMatchKindURLPath, URLValue: path}, Response: &response}
 }
 
+func newPostStub(id string, path string, response mapping.Response) mapping.Mapping {
+	return mapping.Mapping{ID: id, Request: mapping.Request{Method: http.MethodPost,
+		URLKind: mapping.URLMatchKindURLPath, URLValue: path}, Response: &response}
+}
+
 func newVariantStub(id string, path string, mode mapping.ResponseMode, variants ...mapping.Response) mapping.Mapping {
 	return mapping.Mapping{ID: id, Request: mapping.Request{Method: http.MethodGet,
 		URLKind: mapping.URLMatchKindURLPath, URLValue: path}, Responses: &mapping.ResponseSet{Mode: mode, Variants: variants}}
@@ -158,6 +221,13 @@ func okResponse(body string) mapping.Response {
 func performRequest(handler http.Handler, method string, path string) *http.Response {
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(method, path, nil))
+	return recorder.Result()
+}
+
+func performRequestWithBody(handler http.Handler, method string, path string, body string) *http.Response {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	handler.ServeHTTP(recorder, request)
 	return recorder.Result()
 }
 
@@ -202,6 +272,51 @@ func assertElapsedBetween(t *testing.T, elapsed time.Duration, minimum time.Dura
 	if elapsed < minimum || elapsed > maximum {
 		t.Fatalf("expected elapsed between %s and %s, got %s", minimum, maximum, elapsed)
 	}
+}
+
+func assertTemplatedJSON(t *testing.T, response *http.Response) {
+	t.Helper()
+	var payload templatedPayload
+	if err := json.Unmarshal([]byte(readBody(t, response)), &payload); err != nil {
+		t.Fatalf("expected valid JSON: %v", err)
+	}
+	assertTemplatedPayload(t, payload)
+}
+
+func assertTemplatedPayload(t *testing.T, payload templatedPayload) {
+	t.Helper()
+	if payload.Path != "alpha" || len(payload.Items) != 2 {
+		t.Fatalf("unexpected templated payload: %#v", payload)
+	}
+	if payload.Items[0].Field != "one" || payload.Items[1].Field != "two" {
+		t.Fatalf("unexpected templated items: %#v", payload.Items)
+	}
+	if payload.Int < 1 || payload.Int > 100 || !regexp.MustCompile(`^\d{6}$`).MatchString(payload.Code) {
+		t.Fatalf("unexpected random values: %#v", payload)
+	}
+}
+
+type templatedPayload struct {
+	Path  string          `json:"path"`
+	Items []templatedItem `json:"items"`
+	Int   int             `json:"int"`
+	Code  string          `json:"code"`
+}
+
+type templatedItem struct {
+	Field string `json:"field"`
+}
+
+func requestTemplateBody() string {
+	return `{"path":"alpha","array":[{"field":"one"},{"field":"two"}]}`
+}
+
+func userStyleTemplate() string {
+	return `{"path":"{{jsonPath originalRequest.body '$.path'}}","items":[` +
+		`{{#each (jsonPath originalRequest.body '$.array') as |item|}}` +
+		`{"field":"{{jsonPath item '$.field'}}"}{{#unless @last}},{{/unless}}` +
+		`{{/each}}],"int":{{randomInt lower=1 upper=100}},` +
+		`"code":"{{randomValue length=6 type='NUMERIC'}}"}`
 }
 
 func readBody(t *testing.T, response *http.Response) string {

@@ -146,7 +146,7 @@ func buildResponse(path string, field string, raw rawResponse, resolver *files.R
 	}
 
 	response := mapping.Response{Name: raw.Name, Weight: raw.Weight, Status: *raw.Status,
-		Headers: raw.Headers, BodyFileName: raw.BodyFileName, Delay: delay}
+		Headers: raw.Headers, BodyFileName: raw.BodyFileName, Transformers: raw.Transformers, Delay: delay}
 	if raw.Body != nil {
 		response.Body = *raw.Body
 	}

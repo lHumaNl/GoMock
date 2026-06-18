@@ -16,6 +16,7 @@ const (
 	OperatorMatches         Operator = "matches"
 	OperatorAbsent          Operator = "absent"
 	OperatorMatchesJSONPath Operator = "matchesJsonPath"
+	OperatorMatchesXPath    Operator = "matchesXPath"
 )
 
 type Request struct {

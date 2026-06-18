@@ -15,6 +15,7 @@ GoMock Standalone is a lightweight WireMock-like mock server written in Go. It r
 - WireMock-like default priority of `5` when `priority` is omitted; explicit lower numbers win.
 - HTTP endpoints for stubs, `/healthz`, `/readyz`, and `/metrics`.
 - Prometheus metrics for request counts, duration, in-flight requests, loaded mappings, and build info.
+- WireMock-style `response-template` rendering for common migration helpers.
 
 Admin API and runtime reload are intentionally out of scope for the MVP.
 
@@ -76,6 +77,20 @@ response:
   body: '{"created":true}'
 ```
 
+### XML/SOAP body matching
+
+```yaml
+id: soap-customer
+request:
+  method: POST
+  urlPath: /soap
+  bodyPatterns:
+    - matchesXPath: "//*[local-name()='cus' and normalize-space(text())!='']"
+response:
+  status: 200
+  body: '<ok>true</ok>'
+```
+
 ### Sequential variants
 
 ```yaml
@@ -117,6 +132,36 @@ responses:
       body: '{"error":"unavailable"}'
 ```
 
+### Response templates
+
+Add `response-template` to a response's `transformers` list to render Handlebars-like WireMock templates in `body`, preloaded `bodyFileName` content, and response header values. Responses without this transformer are served unchanged, even when they contain `{{...}}` text.
+
+```yaml
+id: templated-callback
+request:
+  method: POST
+  urlPath: /callback
+response:
+  status: 200
+  headers:
+    Content-Type: application/json
+  transformers:
+    - response-template
+  body: |
+    {
+      "path": "{{jsonPath originalRequest.body '$.path'}}",
+      "items": [
+        {{#each (jsonPath originalRequest.body '$.array') as |item|}}
+        {"field":"{{jsonPath item '$.field'}}"}{{#unless @last}},{{/unless}}
+        {{/each}}
+      ],
+      "attempt": {{randomInt lower=1 upper=100}},
+      "code": "{{randomValue length=6 type='NUMERIC'}}"
+    }
+```
+
+Supported helpers are intentionally small and migration-focused: `jsonPath originalRequest.body '$.path'`, `jsonPath item '$.field'` inside loops, `randomInt lower=N upper=N`, `randomValue length=N type='NUMERIC|ALPHABETIC|ALPHANUMERIC'`, `#each (...) as |item|`, and `#unless @last`. Template parse/evaluation failures return `500` for the matched stub.
+
 ## Matching engine notes
 
 - `request.method` matching is case-insensitive.
@@ -126,6 +171,7 @@ responses:
 - `urlPattern` applies a Go regular expression to the request URI without scheme or host.
 - `matchesJsonPath` currently performs an existence check only.
 - JSONPath evaluation uses `github.com/ohler55/ojg` because it provides a small Go-native parser/evaluator and lets the domain matcher stay independent of HTTP and filesystem concerns.
+- `matchesXPath` performs an XML XPath node existence check only. It parses the request body as XML and matches when the expression returns at least one node. XPath evaluation uses `github.com/antchfx/xmlquery`, which supports common WireMock SOAP migration expressions including `local-name()` and `normalize-space()` predicates.
 - Lower `priority` values are selected first. If `priority` is omitted, GoMock uses `5`, matching WireMock's default-priority behavior. An explicit `priority: 0` is preserved and wins over omitted priorities.
 
 When multiple mappings match at the same priority, GoMock picks the most specific mapping by matcher score and then the lexicographically smallest mapping ID for deterministic tie-breaking.
@@ -216,6 +262,7 @@ gomock_build_info{version="dev",commit="unknown",go_version="go1.23.0"} 1
 | `response.headers` | Supported | Static response headers. |
 | `response.body` | Supported | Mutually exclusive with `bodyFileName`. |
 | `response.bodyFileName` | Supported | Loaded from `__files/` at startup with traversal protection. |
+| `response.transformers[].response-template` | Partial | Renders common WireMock helpers in bodies, body files, and headers. Unsupported helpers fail when rendered. |
 | `responses.mode` | GoMock extension | `sequential`, `random`, and `weighted`. |
 | Response delay | GoMock extension | `fixed` and `random` using Go duration syntax. |
 | Top-level `mappings` array | Supported | Each item is loaded as a separate mapping; generated IDs use file name plus item index/name. |

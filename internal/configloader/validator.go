@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/antchfx/xpath"
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
 )
 
@@ -53,6 +54,16 @@ func validateOperatorValue(path string, field string, operator mapping.Operator,
 	if operator == mapping.OperatorMatches {
 		return validateRegex(path, field+".matches", stringValue(value))
 	}
+	if operator == mapping.OperatorMatchesXPath {
+		return validateXPath(path, field+".matchesXPath", stringValue(value))
+	}
+	return nil
+}
+
+func validateXPath(path string, field string, expression string) error {
+	if _, err := xpath.Compile(expression); err != nil {
+		return configError(path, field, "has invalid XPath")
+	}
 	return nil
 }
 
@@ -78,4 +89,5 @@ var bodyOperators = map[string]struct{}{
 	string(mapping.OperatorEqualTo):         {},
 	string(mapping.OperatorContains):        {},
 	string(mapping.OperatorMatchesJSONPath): {},
+	string(mapping.OperatorMatchesXPath):    {},
 }

@@ -49,6 +49,7 @@ type rawResponse struct {
 	Headers      map[string]string `json:"headers" yaml:"headers"`
 	Body         *string           `json:"body" yaml:"body"`
 	BodyFileName string            `json:"bodyFileName" yaml:"bodyFileName"`
+	Transformers []string          `json:"transformers" yaml:"transformers"`
 	Delay        *rawDelay         `json:"delay" yaml:"delay"`
 }
 

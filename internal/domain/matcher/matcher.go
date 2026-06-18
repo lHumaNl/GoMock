@@ -1,12 +1,14 @@
 package matcher
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/antchfx/xmlquery"
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
 	"github.com/ohler55/ojg/jp"
 	"github.com/ohler55/ojg/oj"
@@ -272,6 +274,8 @@ func matchBodyPattern(matcher mapping.Matcher, body []byte) (bool, string) {
 		return content == matcher.Value, "expected equalTo"
 	case mapping.OperatorMatchesJSONPath:
 		return jsonPathExists(matcher.Value, body)
+	case mapping.OperatorMatchesXPath:
+		return xmlPathExists(matcher.Value, body)
 	default:
 		return false, "has unsupported operator"
 	}
@@ -289,6 +293,20 @@ func jsonPathExists(expression string, body []byte) (bool, string) {
 		return false, "has invalid JSONPath"
 	}
 	return len(path.Get(parsed)) > 0, "expected matchesJsonPath"
+}
+
+func xmlPathExists(expression string, body []byte) (bool, string) {
+	// xmlquery provides XPath 1.0 node-set evaluation, including common
+	// WireMock SOAP predicates such as local-name() and normalize-space().
+	document, err := xmlquery.Parse(bytes.NewReader(body))
+	if err != nil {
+		return false, "contains invalid XML"
+	}
+	nodes, err := xmlquery.QueryAll(document, expression)
+	if err != nil {
+		return false, "has invalid XPath"
+	}
+	return len(nodes) > 0, "expected matchesXPath"
 }
 
 type normalizedURI struct {
