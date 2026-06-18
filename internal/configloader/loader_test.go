@@ -27,6 +27,21 @@ func TestLoadRootLoadsYAMLAndJSONMappings(t *testing.T) {
 	assertLoadedYAMLMapping(t, items[1])
 }
 
+func TestLoadRootLoadsJSON5CompatibleMapping(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/json5.json", json5CompatibleMapping())
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 mapping, got %d", len(items))
+	}
+	assertLoadedJSON5Mapping(t, items[0])
+}
+
 func TestLoadRootRejectsMissingRequest(t *testing.T) {
 	root := newMockRoot(t)
 	writeFile(t, root, "mappings/bad.yaml", "response:\n  status: 200\n")
@@ -152,13 +167,22 @@ func TestLoadRootPreservesExplicitZeroPriority(t *testing.T) {
 	}
 }
 
-func TestLoadRootStrictModeRejectsUnknownFields(t *testing.T) {
+func TestLoadRootStrictModeRejectsUnknownYAMLFields(t *testing.T) {
 	root := newMockRoot(t)
 	writeFile(t, root, "mappings/bad.yaml", "unknown: true\nrequest:\n  urlPath: /a\nresponse:\n  status: 200\n")
 
 	_, err := NewLoader(true).LoadRoot(root)
 
 	assertErrorContains(t, err, "bad.yaml", "field", "unknown")
+}
+
+func TestLoadRootStrictModeRejectsUnknownJSON5Fields(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/bad.json", unknownJSON5FieldMapping())
+
+	_, err := NewLoader(true).LoadRoot(root)
+
+	assertErrorContains(t, err, "bad.json", "unknown", "extra")
 }
 
 func assertLoadedYAMLMapping(t *testing.T, item mapping.Mapping) {
@@ -174,12 +198,49 @@ func assertLoadedYAMLMapping(t *testing.T, item mapping.Mapping) {
 	}
 }
 
+func assertLoadedJSON5Mapping(t *testing.T, item mapping.Mapping) {
+	t.Helper()
+	if item.ID != "json5-user" || item.Request.Method != "GET" {
+		t.Fatalf("unexpected mapping identity: %#v", item)
+	}
+	if item.Request.Headers["X-Client"].Value != "web" {
+		t.Fatalf("unexpected header matcher: %#v", item.Request.Headers)
+	}
+	if item.Response.Body != `{"ok":true}` {
+		t.Fatalf("unexpected response body %q", item.Response.Body)
+	}
+}
+
 func validYAMLMapping() string {
 	return "name: Get users\nrequest:\n  method: get\n  urlPath: /api/users\nresponse:\n  status: 200\n  bodyFileName: users.json\n  delay:\n    type: fixed\n    value: 500ms\n"
 }
 
 func validJSONMapping() string {
 	return `{"id":"create-user","request":{"method":"post","url":"/api/users"},"response":{"status":201,"body":"ok"}}`
+}
+
+func json5CompatibleMapping() string {
+	return `// JSON5-style comment for WireMock migration.
+{
+  id: 'json5-user',
+  request: {
+    method: 'get',
+    urlPath: '/api/json5',
+    headers: {'X-Client': {contains: 'web'}},
+  },
+  /* block comments and trailing commas are accepted in .json mappings */
+  response: {
+    status: 200,
+    body: '{"ok":true}',
+  },
+}`
+}
+
+func unknownJSON5FieldMapping() string {
+	return `{
+  request: {urlPath: '/a', extra: true},
+  response: {status: 200},
+}`
 }
 
 func loadRootError(root string) error {

@@ -6,7 +6,7 @@ GoMock Standalone is a lightweight WireMock-like mock server written in Go. It r
 
 - Go module and `cmd/gomock` CLI skeleton.
 - Clean package layout for app, domain, config loading, and file resolution.
-- First-level loading from `mappings/*.json`, `mappings/*.yaml`, and `mappings/*.yml`.
+- First-level loading from JSON5-compatible `mappings/*.json`, `mappings/*.yaml`, and `mappings/*.yml`.
 - Stable generated mapping IDs from file names when `id` is omitted.
 - Startup validation with file path and clear field reasons.
 - Safe `bodyFileName` loading from `__files` with path traversal protection.
@@ -54,6 +54,8 @@ make build
 ## Mapping examples
 
 Mappings live in the first level of `mappings/` and may be JSON, YAML, or YML. Response files are loaded from `__files/` during startup.
+
+`.json` mapping files are JSON5-compatible to ease migration from WireMock exports and hand-maintained stubs. They accept `//` and `/* */` comments, trailing commas, single-quoted strings, and unquoted object keys. YAML parsing is unchanged. Use `--strict` when you want startup to reject unknown mapping fields after JSON5 decoding.
 
 ### Inline response
 

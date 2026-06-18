@@ -7,6 +7,7 @@ require gopkg.in/yaml.v3 v3.0.1
 require (
 	github.com/ohler55/ojg v1.28.1
 	github.com/prometheus/client_golang v1.20.5
+	github.com/titanous/json5 v1.0.0
 )
 
 require (

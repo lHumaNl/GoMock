@@ -2,7 +2,6 @@ package configloader
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
 	"github.com/lHumaNl/gomock/internal/files"
+	"github.com/titanous/json5"
 	"gopkg.in/yaml.v3"
 )
 
@@ -95,7 +95,7 @@ func hasMappingExtension(name string) bool {
 
 func decodeJSON(data []byte, strict bool) (rawMapping, error) {
 	var raw rawMapping
-	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder := json5.NewDecoder(bytes.NewReader(data))
 	if strict {
 		decoder.DisallowUnknownFields()
 	}
