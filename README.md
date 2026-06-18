@@ -1,18 +1,22 @@
 # GoMock
 
-GoMock is a lightweight WireMock-compatible mock server written in Go. It loads mappings from disk, serves deterministic or variant responses, supports common WireMock request matching patterns, and exposes Prometheus metrics.
+GoMock is a lightweight mock server written in Go with WireMock-compatible mappings. It loads mappings from disk, serves deterministic or variant responses, supports common WireMock request matching patterns, and exposes Prometheus metrics.
 
 ## Features
 
 - Single standalone binary with no JVM dependency.
+- WireMock-style `mappings/` and `__files/` directory layout.
+- WireMock-compatible mappings for common request matchers and response definitions.
 - JSON5-compatible `.json` mappings plus YAML/YML support.
 - Safe `bodyFileName` loading from `__files/` with path traversal protection.
 - Deterministic mapping selection by priority, specificity, and ID.
+- Common request matchers including headers, query parameters, JSONPath, XPath, and regex.
+- Response bodies from inline content, `bodyFileName`, and WireMock-style response templates.
 - Response variants with `sequential`, `random`, and `weighted` modes.
 - Fixed and random delays, including common WireMock delay formats.
-- Response templating for practical WireMock migration helpers.
 - Health, readiness, and Prometheus metrics endpoints.
 - Structured logs plus optional verbose traffic logging.
+- Docker image and container workflow for local or CI use.
 
 ## Installation
 
