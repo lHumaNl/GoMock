@@ -45,15 +45,31 @@ func (a *Application) Run(ctx context.Context) error {
 		"host", a.config.Host,
 		"port", a.config.Port,
 		"metrics_port", a.config.MetricsPort,
+		"tls", a.config.TLS.Enabled,
 	)
 	service := stub.NewService(mappings)
 	handler := a.newMainHandler(service, metrics)
-	servers := []*server.HTTPServer{server.NewHTTPServer(a.address(), handler, a.logger)}
+	servers := []*server.HTTPServer{a.newMainServer(handler)}
 	if a.separateMetricsServer() {
 		metricsHandler := server.NewMetricsHandler(metrics.Handler())
 		servers = append(servers, server.NewHTTPServer(a.metricsAddress(), metricsHandler, a.logger))
 	}
 	return runServers(ctx, servers)
+}
+
+func (a *Application) newMainServer(handler *server.Handler) *server.HTTPServer {
+	if !a.config.TLS.Enabled {
+		return server.NewHTTPServer(a.address(), handler, a.logger)
+	}
+	return server.NewHTTPSServer(a.address(), handler, a.logger, a.serverTLSConfig())
+}
+
+func (a *Application) serverTLSConfig() server.TLSConfig {
+	return server.TLSConfig{
+		CertFile:   a.config.TLS.CertFile,
+		KeyFile:    a.config.TLS.KeyFile,
+		MinVersion: a.config.TLSMinVersion(),
+	}
 }
 
 func (a *Application) address() string {

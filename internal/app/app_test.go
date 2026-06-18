@@ -2,8 +2,16 @@ package app
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -82,6 +90,39 @@ func TestApplicationRunsSeparateMetricsServerWhenConfigured(t *testing.T) {
 	assertApplicationStopped(t, errorsChan)
 }
 
+func TestApplicationRunStartsHTTPSServerWithSelfSignedCert(t *testing.T) {
+	root := newAppTestRoot(t)
+	writeAppFile(t, root, "mappings/secure.yaml", "request:\n  method: GET\n  urlPath: /secure\nresponse:\n  status: 200\n  body: secure\n")
+	cert := writeSelfSignedCert(t)
+	port := freePort(t)
+	config := Config{Root: root, Host: "127.0.0.1", Port: port, LogLevel: DefaultLogLevel,
+		TLS: TLSConfig{Enabled: true, CertFile: cert.certFile, KeyFile: cert.keyFile, MinVersion: DefaultTLSMinVersion}}
+	application := newTestApplication(t, config)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errorsChan := runApplication(ctx, application)
+	client := newTLSClient(cert.pool)
+	baseURL := "https://127.0.0.1:" + strconv.Itoa(port)
+	waitForOKWithClient(t, client, baseURL+"/readyz")
+	waitForOKWithClient(t, client, baseURL+"/metrics")
+
+	response, err := client.Get(baseURL + "/secure")
+	if err != nil {
+		t.Fatalf("get HTTPS stub response: %v", err)
+	}
+	defer closeBody(response.Body)
+	assertAppResponse(t, response, http.StatusOK, "secure")
+	cancel()
+	assertApplicationStopped(t, errorsChan)
+}
+
+type testCertificate struct {
+	certFile string
+	keyFile  string
+	pool     *x509.CertPool
+}
+
 func newTestApplication(t *testing.T, config Config) *Application {
 	t.Helper()
 	if config.VerboseBodyLimit == 0 {
@@ -105,10 +146,14 @@ func runApplication(ctx context.Context, application *Application) <-chan error 
 }
 
 func waitForOK(t *testing.T, url string) {
+	waitForOKWithClient(t, http.DefaultClient, url)
+}
+
+func waitForOKWithClient(t *testing.T, client *http.Client, url string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if ready(url) {
+		if ready(client, url) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -116,8 +161,8 @@ func waitForOK(t *testing.T, url string) {
 	t.Fatalf("server did not become ready at %s", url)
 }
 
-func ready(url string) bool {
-	response, err := http.Get(url)
+func ready(client *http.Client, url string) bool {
+	response, err := client.Get(url)
 	if err != nil {
 		return false
 	}
@@ -208,4 +253,65 @@ func closeBody(body io.Closer) {
 
 func closeListener(listener net.Listener) {
 	_ = listener.Close()
+}
+
+func writeSelfSignedCert(t *testing.T) testCertificate {
+	t.Helper()
+	certPEM, keyPEM := generateSelfSignedCert(t)
+	root := t.TempDir()
+	certFile := filepath.Join(root, "server.crt")
+	keyFile := filepath.Join(root, "server.key")
+	writeAppFile(t, root, "server.crt", string(certPEM))
+	writeAppFile(t, root, "server.key", string(keyPEM))
+	return testCertificate{certFile: certFile, keyFile: keyFile, pool: certPool(t, certPEM)}
+}
+
+func generateSelfSignedCert(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate private key: %v", err)
+	}
+	certDER := createCertificate(t, privateKey)
+	keyDER, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+	return pemBlock("CERTIFICATE", certDER), pemBlock("EC PRIVATE KEY", keyDER)
+}
+
+func createCertificate(t *testing.T, privateKey *ecdsa.PrivateKey) []byte {
+	t.Helper()
+	template := certificateTemplate()
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return certDER
+}
+
+func certificateTemplate() *x509.Certificate {
+	return &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "127.0.0.1"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}
+}
+
+func pemBlock(blockType string, der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+}
+
+func certPool(t *testing.T, certPEM []byte) *x509.CertPool {
+	t.Helper()
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(certPEM) {
+		t.Fatal("append cert to pool")
+	}
+	return pool
+}
+
+func newTLSClient(pool *x509.CertPool) *http.Client {
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
 }

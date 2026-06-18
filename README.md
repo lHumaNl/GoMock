@@ -87,6 +87,7 @@ mock/
 ## CLI Reference
 
 ```text
+--config                  optional YAML, JSON, or JSON5 config file
 --root                    mock root directory (default: .)
 --host                    HTTP bind host (default: 0.0.0.0)
 --port                    HTTP bind port (default: 8080)
@@ -97,8 +98,58 @@ mock/
 --verbose-preview-limit   max request URI characters in summary logs
 --verbose-body-limit      max body bytes captured in full logs
 --verbose-redact          redact sensitive traffic log fields
+--tls                     enable HTTPS for the main server
+--tls-cert-file           TLS certificate file
+--tls-key-file            TLS private key file
+--tls-min-version         1.2 or 1.3 (default: 1.2)
 --version                 print version and exit
 ```
+
+## Startup Configuration
+
+Use `--config` to load a partial startup config from `.yaml`, `.yml`, `.json`, or `.json5` files. Omitted values keep the built-in defaults, and explicitly provided CLI flags override config-file values.
+
+```yaml
+root: ./mock
+host: 127.0.0.1
+port: 8080
+metricsPort: 9090
+logLevel: info
+strict: false
+verbose: off
+verboseBodyLimit: 4096
+verbosePreviewLimit: 160
+verboseRedact: true
+tls:
+  enabled: false
+  certFile: ./certs/server.crt
+  keyFile: ./certs/server.key
+  minVersion: "1.2"
+```
+
+Example:
+
+```bash
+gomock --config ./gomock.yaml --port 8081
+```
+
+In this example, `--port 8081` overrides `port` from the config file.
+
+## TLS / HTTPS
+
+TLS is disabled by default. Enable it with CLI flags or the `tls` config block:
+
+```bash
+gomock --root ./mock \
+  --tls \
+  --tls-cert-file ./certs/server.crt \
+  --tls-key-file ./certs/server.key \
+  --tls-min-version 1.2
+```
+
+When TLS is enabled, the main server listens with HTTPS. If `/metrics` is served on the main port, it is also HTTPS. If `--metrics-port` uses a different port, that separate metrics listener remains HTTP.
+
+TLS validation requires `certFile` and `keyFile` when enabled, verifies both files are readable, and accepts only TLS `1.2` or `1.3` as the minimum version.
 
 ## Mapping Examples
 

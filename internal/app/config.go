@@ -1,6 +1,10 @@
 package app
 
-import "fmt"
+import (
+	"crypto/tls"
+	"fmt"
+	"os"
+)
 
 const (
 	DefaultRoot                = "."
@@ -12,6 +16,7 @@ const (
 	DefaultVerbose             = "off"
 	DefaultVerboseBodyLimit    = 4096
 	DefaultVerbosePreviewLimit = 160
+	DefaultTLSMinVersion       = "1.2"
 )
 
 type Config struct {
@@ -27,6 +32,14 @@ type Config struct {
 	VerboseBodyLimit    int
 	VerbosePreviewLimit int
 	VerboseRedact       bool
+	TLS                 TLSConfig
+}
+
+type TLSConfig struct {
+	Enabled    bool
+	CertFile   string
+	KeyFile    string
+	MinVersion string
 }
 
 func DefaultConfig() Config {
@@ -40,6 +53,9 @@ func DefaultConfig() Config {
 		Verbose:             DefaultVerbose,
 		VerboseBodyLimit:    DefaultVerboseBodyLimit,
 		VerbosePreviewLimit: DefaultVerbosePreviewLimit,
+		TLS: TLSConfig{
+			MinVersion: DefaultTLSMinVersion,
+		},
 	}
 }
 
@@ -59,7 +75,17 @@ func (c Config) Validate() error {
 	if err := validateVerbose(c.Verbose); err != nil {
 		return err
 	}
-	return validateVerboseLimits(c.VerboseBodyLimit, c.VerbosePreviewLimit)
+	if err := validateVerboseLimits(c.VerboseBodyLimit, c.VerbosePreviewLimit); err != nil {
+		return err
+	}
+	return validateTLSConfig(c.TLS)
+}
+
+func (c Config) TLSMinVersion() uint16 {
+	if c.TLS.MinVersion == "1.3" {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
 }
 
 func validatePort(name string, value int, required bool) error {
@@ -98,4 +124,55 @@ func validateLogLevel(value string) error {
 	default:
 		return fmt.Errorf("log-level must be debug, info, warn, or error")
 	}
+}
+
+func validateTLSConfig(config TLSConfig) error {
+	if err := validateTLSMinVersion(config.MinVersion); err != nil {
+		return err
+	}
+	if !config.Enabled {
+		return nil
+	}
+	if config.CertFile == "" {
+		return fmt.Errorf("tls-cert-file is required when TLS is enabled")
+	}
+	if config.KeyFile == "" {
+		return fmt.Errorf("tls-key-file is required when TLS is enabled")
+	}
+	return validateTLSFiles(config.CertFile, config.KeyFile)
+}
+
+func validateTLSMinVersion(value string) error {
+	switch value {
+	case "", "1.2", "1.3":
+		return nil
+	default:
+		return fmt.Errorf("tls-min-version must be 1.2 or 1.3")
+	}
+}
+
+func validateTLSFiles(certFile string, keyFile string) error {
+	if err := validateReadableFile("tls-cert-file", certFile); err != nil {
+		return err
+	}
+	return validateReadableFile("tls-key-file", keyFile)
+}
+
+func validateReadableFile(name string, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%s must be readable: %w", name, err)
+	}
+	info, err := file.Stat()
+	closeErr := file.Close()
+	if err != nil {
+		return fmt.Errorf("%s must be readable: %w", name, err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("%s must be readable: %w", name, closeErr)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s must be a file", name)
+	}
+	return nil
 }
