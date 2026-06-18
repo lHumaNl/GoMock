@@ -243,9 +243,39 @@ func matchValues(matcher mapping.Matcher, values []string) (bool, string) {
 		return anyValue(values, func(value string) bool { return strings.Contains(value, matcher.Value) }), "expected contains"
 	case mapping.OperatorMatches:
 		return matchRegexValues(values, matcher.Value)
+	case mapping.OperatorHasExactly:
+		return matchExactlyValues(matcher.ValueMatchers, values)
 	default:
 		return false, "has unsupported operator"
 	}
+}
+
+func matchExactlyValues(matchers []mapping.Matcher, values []string) (bool, string) {
+	if len(values) != len(matchers) {
+		return false, "expected hasExactly"
+	}
+	used := make([]bool, len(values))
+	for _, matcher := range matchers {
+		index := exactValueMatchIndex(matcher, values, used)
+		if index < 0 {
+			return false, "expected hasExactly"
+		}
+		used[index] = true
+	}
+	return true, "expected hasExactly"
+}
+
+func exactValueMatchIndex(matcher mapping.Matcher, values []string, used []bool) int {
+	for index, value := range values {
+		if used[index] {
+			continue
+		}
+		matched, _ := matchValues(matcher, []string{value})
+		if matched {
+			return index
+		}
+	}
+	return -1
 }
 
 func matchRegexValues(values []string, expression string) (bool, string) {

@@ -15,6 +15,7 @@ const (
 	OperatorContains        Operator = "contains"
 	OperatorMatches         Operator = "matches"
 	OperatorAbsent          Operator = "absent"
+	OperatorHasExactly      Operator = "hasExactly"
 	OperatorMatchesJSONPath Operator = "matchesJsonPath"
 	OperatorMatchesXPath    Operator = "matchesXPath"
 )
@@ -29,6 +30,7 @@ type Request struct {
 }
 
 type Matcher struct {
-	Operator Operator
-	Value    string
+	Operator      Operator
+	Value         string
+	ValueMatchers []Matcher
 }

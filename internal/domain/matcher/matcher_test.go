@@ -83,6 +83,51 @@ func TestRequestMatcherNamedOperators(t *testing.T) {
 	assertMatched(t, Match(item, request))
 }
 
+func TestRequestMatcherQueryHasExactly(t *testing.T) {
+	item := hasExactlyQueryMapping("syscode", equalToMatcher("UFONA"))
+	tests := []struct {
+		name string
+		uri  string
+		want bool
+	}{
+		{name: "single value matches", uri: "/search?syscode=UFONA", want: true},
+		{name: "missing parameter fails", uri: "/search", want: false},
+		{name: "extra value fails", uri: "/search?syscode=UFONA&syscode=EXTRA", want: false},
+		{name: "wrong value fails", uri: "/search?syscode=OTHER", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Match(item, Request{URI: tt.uri})
+			if result.Matched != tt.want {
+				t.Fatalf("expected matched=%t, got %#v", tt.want, result)
+			}
+		})
+	}
+}
+
+func TestRequestMatcherQueryHasExactlyMatchesMultipleValues(t *testing.T) {
+	item := hasExactlyQueryMapping("id", equalToMatcher("1"), containsMatcher("2"))
+
+	result := Match(item, Request{URI: "/search?id=value-2&id=1"})
+
+	assertMatched(t, result)
+}
+
+func TestRequestMatcherHeaderHasExactly(t *testing.T) {
+	item := newMapping("header-values", 1, mapping.Request{
+		URLKind:  mapping.URLMatchKindURLPath,
+		URLValue: "/things",
+		Headers: map[string]mapping.Matcher{
+			"X-ID": hasExactlyMatcher(equalToMatcher("1"), containsMatcher("2")),
+		},
+	})
+
+	result := Match(item, Request{URI: "/things", Headers: map[string][]string{"x-id": {"1", "value-2"}}})
+
+	assertMatched(t, result)
+}
+
 func TestRequestMatcherReportsRegexFailure(t *testing.T) {
 	item := newMapping("bad-regex", 1, mapping.Request{
 		URLKind:  mapping.URLMatchKindURLPath,
@@ -188,6 +233,26 @@ func xmlBodyMapping(expression string) mapping.Mapping {
 			{Operator: mapping.OperatorMatchesXPath, Value: expression},
 		},
 	})
+}
+
+func hasExactlyQueryMapping(name string, matchers ...mapping.Matcher) mapping.Mapping {
+	return newMapping("exact-query", 1, mapping.Request{
+		URLKind:         mapping.URLMatchKindURLPath,
+		URLValue:        "/search",
+		QueryParameters: map[string]mapping.Matcher{name: hasExactlyMatcher(matchers...)},
+	})
+}
+
+func hasExactlyMatcher(matchers ...mapping.Matcher) mapping.Matcher {
+	return mapping.Matcher{Operator: mapping.OperatorHasExactly, ValueMatchers: matchers}
+}
+
+func equalToMatcher(value string) mapping.Matcher {
+	return mapping.Matcher{Operator: mapping.OperatorEqualTo, Value: value}
+}
+
+func containsMatcher(value string) mapping.Matcher {
+	return mapping.Matcher{Operator: mapping.OperatorContains, Value: value}
 }
 
 func assertMatched(t *testing.T, result MatchResult) {

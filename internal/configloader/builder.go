@@ -121,9 +121,41 @@ func buildBodyMatchers(raw []rawOperator) []mapping.Matcher {
 
 func buildMatcher(raw rawOperator) mapping.Matcher {
 	for name, value := range raw {
-		return mapping.Matcher{Operator: mapping.Operator(name), Value: fmt.Sprint(value)}
+		operator := mapping.Operator(name)
+		matcher := mapping.Matcher{Operator: operator, Value: fmt.Sprint(value)}
+		if operator == mapping.OperatorHasExactly {
+			matcher.Value = ""
+			matcher.ValueMatchers = buildNestedMatchers(value)
+		}
+		return matcher
 	}
 	return mapping.Matcher{}
+}
+
+func buildNestedMatchers(value any) []mapping.Matcher {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	matchers := make([]mapping.Matcher, 0, len(items))
+	for _, item := range items {
+		operator, ok := rawOperatorFromAny(item)
+		if ok {
+			matchers = append(matchers, buildMatcher(operator))
+		}
+	}
+	return matchers
+}
+
+func rawOperatorFromAny(value any) (rawOperator, bool) {
+	switch typed := value.(type) {
+	case rawOperator:
+		return typed, true
+	case map[string]any:
+		return rawOperator(typed), true
+	default:
+		return nil, false
+	}
 }
 
 func countNonEmpty(values []string) int {

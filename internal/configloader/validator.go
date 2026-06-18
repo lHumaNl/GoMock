@@ -51,6 +51,9 @@ func validateOperator(path string, field string, operator rawOperator, allowed m
 }
 
 func validateOperatorValue(path string, field string, operator mapping.Operator, value any) error {
+	if operator == mapping.OperatorHasExactly {
+		return validateHasExactly(path, field+".hasExactly", value)
+	}
 	if operator == mapping.OperatorMatches {
 		return validateRegex(path, field+".matches", stringValue(value))
 	}
@@ -58,6 +61,28 @@ func validateOperatorValue(path string, field string, operator mapping.Operator,
 		return validateXPath(path, field+".matchesXPath", stringValue(value))
 	}
 	return nil
+}
+
+func validateHasExactly(path string, field string, value any) error {
+	items, ok := value.([]any)
+	if !ok {
+		return configError(path, field, "must be an array of value matchers")
+	}
+	for index, item := range items {
+		if err := validateHasExactlyItem(path, field, index, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateHasExactlyItem(path string, field string, index int, item any) error {
+	itemField := field + "[" + itoa(index) + "]"
+	operator, ok := rawOperatorFromAny(item)
+	if !ok {
+		return configError(path, itemField, "must be a value matcher object")
+	}
+	return validateOperator(path, itemField, operator, hasExactlyOperators)
 }
 
 func validateXPath(path string, field string, expression string) error {
@@ -79,10 +104,17 @@ func itoa(value int) string {
 }
 
 var headerQueryOperators = map[string]struct{}{
+	string(mapping.OperatorEqualTo):    {},
+	string(mapping.OperatorContains):   {},
+	string(mapping.OperatorMatches):    {},
+	string(mapping.OperatorAbsent):     {},
+	string(mapping.OperatorHasExactly): {},
+}
+
+var hasExactlyOperators = map[string]struct{}{
 	string(mapping.OperatorEqualTo):  {},
 	string(mapping.OperatorContains): {},
 	string(mapping.OperatorMatches):  {},
-	string(mapping.OperatorAbsent):   {},
 }
 
 var bodyOperators = map[string]struct{}{
