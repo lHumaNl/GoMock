@@ -168,7 +168,7 @@ Supported helpers are intentionally small and migration-focused: `jsonPath origi
 - Header names are matched case-insensitively.
 - `url` matches the exact request URI path and query string.
 - `urlPath` matches only the path and ignores the query string.
-- `urlPattern` applies a Go regular expression to the request URI without scheme or host.
+- `urlPattern` applies a regular expression to the request URI without scheme or host. GoMock uses Go's RE2 engine for RE2-compatible patterns and falls back to a compatibility engine for WireMock-style lookarounds such as `(?!...)`.
 - `matchesJsonPath` currently performs an existence check only.
 - JSONPath evaluation uses `github.com/ohler55/ojg` because it provides a small Go-native parser/evaluator and lets the domain matcher stay independent of HTTP and filesystem concerns.
 - `matchesXPath` performs an XML XPath node existence check only. It parses the request body as XML and matches when the expression returns at least one node. XPath evaluation uses `github.com/antchfx/xmlquery`, which supports common WireMock SOAP migration expressions including `local-name()` and `normalize-space()` predicates.
@@ -252,11 +252,12 @@ gomock_build_info{version="dev",commit="unknown",go_version="go1.23.0"} 1
 | `request.method` | Supported | Case-insensitive matching, normalized to uppercase. |
 | `request.url` | Supported | Exact path plus query string. |
 | `request.urlPath` | Supported | Exact path without query string. |
-| `request.urlPattern` | Supported | Go regular expression against request URI. |
+| `request.urlPattern` | Supported | Regex against request URI; RE2 fast path with compatibility fallback for lookarounds. |
 | `request.headers` | Supported | `equalTo`, `contains`, `matches`, and `absent`. |
 | `request.queryParameters` | Supported | `equalTo`, `contains`, `matches`, and `absent`. |
 | `request.bodyPatterns.contains` | Supported | String containment check. |
 | `request.bodyPatterns.equalTo` | Supported | Exact body string match. |
+| `request.bodyPatterns.matches` | Supported | Regex against the full body string; same regex compatibility behavior as `urlPattern`. |
 | `request.bodyPatterns.matchesJsonPath` | Partial | Existence check only. |
 | `response.status` | Supported | Required for each response or variant. |
 | `response.headers` | Supported | Static response headers. |
@@ -264,7 +265,7 @@ gomock_build_info{version="dev",commit="unknown",go_version="go1.23.0"} 1
 | `response.bodyFileName` | Supported | Loaded from `__files/` at startup with traversal protection. |
 | `response.transformers[].response-template` | Partial | Renders common WireMock helpers in bodies, body files, and headers. Unsupported helpers fail when rendered. |
 | `responses.mode` | GoMock extension | `sequential`, `random`, and `weighted`. |
-| Response delay | GoMock extension | `fixed` and `random` using Go duration syntax. |
+| Response delay | GoMock extension + partial WireMock | GoMock `delay` supports `fixed` and `random` using Go duration syntax. WireMock `delayDistribution` supports `uniform` with `lower`/`upper` milliseconds. |
 | Top-level `mappings` array | Supported | Each item is loaded as a separate mapping; generated IDs use file name plus item index/name. |
 | `serveEventListeners` | Not supported | Ignored in default mode as an unknown field; rejected by `--strict`. Webhooks are not executed. |
 | WireMock Admin API | Not supported | Intentionally out of MVP scope. |

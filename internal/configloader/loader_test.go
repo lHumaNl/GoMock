@@ -177,6 +177,41 @@ func TestLoadRootRejectsInvalidRegex(t *testing.T) {
 	assertErrorContains(t, err, "bad.yaml", "request.urlPattern", "invalid regex")
 }
 
+func TestLoadRootAcceptsWireMockLookaheadURLPattern(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/lookahead.json", `{
+	  request: {urlPattern: '/prweb/PRRestService/LoanMBAPI/v2/cases\\?pinEq=(?!UC0).+&id=.+'},
+	  response: {status: 200}
+	}`)
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if items[0].Request.URLValue == "" {
+		t.Fatalf("expected URL pattern to be loaded")
+	}
+}
+
+func TestLoadRootBuildsWireMockUniformDelayDistribution(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/uniform.json", `{
+	  request: {urlPath: '/slow'},
+	  response: {status: 200, delayDistribution: {type: 'uniform', lower: 800, upper: 900}}
+	}`)
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	delay := items[0].Response.Delay
+	if delay == nil || delay.Type != mapping.DelayTypeRandom || delay.Min != 800*time.Millisecond || delay.Max != 900*time.Millisecond {
+		t.Fatalf("unexpected delay: %#v", delay)
+	}
+}
+
 func TestLoadRootRejectsInvalidRandomDelay(t *testing.T) {
 	root := newMockRoot(t)
 	writeFile(t, root, "mappings/bad.yaml", "request:\n  urlPath: /a\nresponse:\n  status: 200\n  delay:\n    type: random\n    min: 2s\n    max: 1s\n")

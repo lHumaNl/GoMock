@@ -43,14 +43,15 @@ type rawRequest struct {
 type rawOperator map[string]any
 
 type rawResponse struct {
-	Name         string            `json:"name" yaml:"name"`
-	Weight       int               `json:"weight" yaml:"weight"`
-	Status       *int              `json:"status" yaml:"status"`
-	Headers      map[string]string `json:"headers" yaml:"headers"`
-	Body         *string           `json:"body" yaml:"body"`
-	BodyFileName string            `json:"bodyFileName" yaml:"bodyFileName"`
-	Transformers []string          `json:"transformers" yaml:"transformers"`
-	Delay        *rawDelay         `json:"delay" yaml:"delay"`
+	Name              string                `json:"name" yaml:"name"`
+	Weight            int                   `json:"weight" yaml:"weight"`
+	Status            *int                  `json:"status" yaml:"status"`
+	Headers           map[string]string     `json:"headers" yaml:"headers"`
+	Body              *string               `json:"body" yaml:"body"`
+	BodyFileName      string                `json:"bodyFileName" yaml:"bodyFileName"`
+	Transformers      []string              `json:"transformers" yaml:"transformers"`
+	Delay             *rawDelay             `json:"delay" yaml:"delay"`
+	DelayDistribution *rawDelayDistribution `json:"delayDistribution" yaml:"delayDistribution"`
 }
 
 type rawResponses struct {
@@ -63,4 +64,10 @@ type rawDelay struct {
 	Value string `json:"value" yaml:"value"`
 	Min   string `json:"min" yaml:"min"`
 	Max   string `json:"max" yaml:"max"`
+}
+
+type rawDelayDistribution struct {
+	Type  string `json:"type" yaml:"type"`
+	Lower *int   `json:"lower" yaml:"lower"`
+	Upper *int   `json:"upper" yaml:"upper"`
 }

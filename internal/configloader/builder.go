@@ -3,12 +3,12 @@ package configloader
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
 	"github.com/lHumaNl/gomock/internal/files"
+	"github.com/lHumaNl/gomock/internal/wiremockregex"
 )
 
 const (
@@ -140,7 +140,7 @@ func buildResponse(path string, field string, raw rawResponse, resolver *files.R
 	if err := validateResponseShape(path, field, raw); err != nil {
 		return mapping.Response{}, err
 	}
-	delay, err := buildDelay(path, field+".delay", raw.Delay)
+	delay, err := buildResponseDelay(path, field, raw)
 	if err != nil {
 		return mapping.Response{}, err
 	}
@@ -151,6 +151,16 @@ func buildResponse(path string, field string, raw rawResponse, resolver *files.R
 		response.Body = *raw.Body
 	}
 	return response, loadBodyFile(path, field, &response, resolver)
+}
+
+func buildResponseDelay(path string, field string, raw rawResponse) (*mapping.Delay, error) {
+	if raw.Delay != nil && raw.DelayDistribution != nil {
+		return nil, configError(path, field+".delay", "is mutually exclusive with delayDistribution")
+	}
+	if raw.DelayDistribution != nil {
+		return buildDelayDistribution(path, field+".delayDistribution", raw.DelayDistribution)
+	}
+	return buildDelay(path, field+".delay", raw.Delay)
 }
 
 func validateResponseShape(path string, field string, raw rawResponse) error {
@@ -231,6 +241,36 @@ func buildDelay(path string, field string, raw *rawDelay) (*mapping.Delay, error
 	}
 }
 
+func buildDelayDistribution(path string, field string, raw *rawDelayDistribution) (*mapping.Delay, error) {
+	switch raw.Type {
+	case "uniform":
+		return uniformDelayDistribution(path, field, raw.Lower, raw.Upper)
+	default:
+		return nil, configError(path, field+".type", "must be uniform")
+	}
+}
+
+func uniformDelayDistribution(path string, field string, lowerValue *int, upperValue *int) (*mapping.Delay, error) {
+	if lowerValue == nil {
+		return nil, configError(path, field+".lower", "is required")
+	}
+	if upperValue == nil {
+		return nil, configError(path, field+".upper", "is required")
+	}
+	if *lowerValue < 0 {
+		return nil, configError(path, field+".lower", "must be non-negative")
+	}
+	if *upperValue < 0 {
+		return nil, configError(path, field+".upper", "must be non-negative")
+	}
+	lower := time.Duration(*lowerValue) * time.Millisecond
+	upper := time.Duration(*upperValue) * time.Millisecond
+	if lower > upper {
+		return nil, configError(path, field+".lower", "must be less than or equal to upper")
+	}
+	return &mapping.Delay{Type: mapping.DelayTypeRandom, Min: lower, Max: upper}, nil
+}
+
 func fixedDelay(path string, field string, value string) (*mapping.Delay, error) {
 	duration, err := parseNonNegativeDuration(path, field+".value", value)
 	if err != nil {
@@ -266,7 +306,7 @@ func parseNonNegativeDuration(path string, field string, value string) (time.Dur
 }
 
 func validateRegex(path string, field string, expression string) error {
-	if _, err := regexp.Compile(expression); err != nil {
+	if err := wiremockregex.Validate(expression); err != nil {
 		return configError(path, field, "has invalid regex")
 	}
 	return nil

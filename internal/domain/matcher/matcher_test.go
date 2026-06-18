@@ -36,6 +36,8 @@ func TestRequestMatcherURLSemantics(t *testing.T) {
 		{name: "url rejects missing query", request: urlRequest(mapping.URLMatchKindURL, "/users?active=true"), uri: "/users", want: false},
 		{name: "urlPath ignores query", request: urlRequest(mapping.URLMatchKindURLPath, "/users"), uri: "/users?active=true", want: true},
 		{name: "urlPattern matches request uri", request: urlRequest(mapping.URLMatchKindURLPattern, `^/users/\d+$`), uri: "/users/42", want: true},
+		{name: "urlPattern supports negative lookahead", request: urlRequest(mapping.URLMatchKindURLPattern, `/prweb/PRRestService/LoanMBAPI/v2/cases\?pinEq=(?!UC0).+&id=.+`), uri: "/prweb/PRRestService/LoanMBAPI/v2/cases?pinEq=UC123&id=42", want: true},
+		{name: "urlPattern negative lookahead rejects excluded prefix", request: urlRequest(mapping.URLMatchKindURLPattern, `/prweb/PRRestService/LoanMBAPI/v2/cases\?pinEq=(?!UC0).+&id=.+`), uri: "/prweb/PRRestService/LoanMBAPI/v2/cases?pinEq=UC012&id=42", want: false},
 	}
 
 	for _, tt := range tests {
@@ -46,6 +48,19 @@ func TestRequestMatcherURLSemantics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequestMatcherQueryMatchesSupportsLookahead(t *testing.T) {
+	item := newMapping("filters", 1, mapping.Request{
+		URLKind:  mapping.URLMatchKindURLPath,
+		URLValue: "/search",
+		QueryParameters: map[string]mapping.Matcher{
+			"pinEq": {Operator: mapping.OperatorMatches, Value: `^(?!UC0).+`},
+		},
+	})
+
+	assertMatched(t, Match(item, Request{URI: "/search?pinEq=UC123"}))
+	assertUnmatchedReason(t, Match(item, Request{URI: "/search?pinEq=UC012"}), "expected matches")
 }
 
 func TestRequestMatcherNamedOperators(t *testing.T) {
@@ -87,6 +102,7 @@ func TestRequestMatcherBodyPatterns(t *testing.T) {
 		BodyPatterns: []mapping.Matcher{
 			{Operator: mapping.OperatorEqualTo, Value: `{"user":{"id":42,"active":true}}`},
 			{Operator: mapping.OperatorContains, Value: "active"},
+			{Operator: mapping.OperatorMatches, Value: `"id":\s*(?!0)\d+`},
 			{Operator: mapping.OperatorMatchesJSONPath, Value: "$.user.id"},
 		},
 	})

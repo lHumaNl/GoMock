@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/antchfx/xmlquery"
 	"github.com/lHumaNl/gomock/internal/domain/mapping"
+	"github.com/lHumaNl/gomock/internal/wiremockregex"
 	"github.com/ohler55/ojg/jp"
 	"github.com/ohler55/ojg/oj"
 )
@@ -167,7 +167,7 @@ func (c *matchContext) matchURLPath() MatchResult {
 }
 
 func (c *matchContext) matchURLPattern() MatchResult {
-	matched, err := regexp.MatchString(c.item.Request.URLValue, c.uri.value)
+	matched, err := wiremockregex.MatchString(c.item.Request.URLValue, c.uri.value)
 	if err != nil {
 		return c.unmatched("urlPattern has invalid regex")
 	}
@@ -249,11 +249,20 @@ func matchValues(matcher mapping.Matcher, values []string) (bool, string) {
 }
 
 func matchRegexValues(values []string, expression string) (bool, string) {
-	compiled, err := regexp.Compile(expression)
+	compiled, err := wiremockregex.Compile(expression)
 	if err != nil {
 		return false, "has invalid regex"
 	}
-	return anyValue(values, compiled.MatchString), "expected matches"
+	for _, value := range values {
+		matched, err := compiled.MatchString(value)
+		if err != nil {
+			return false, "has invalid regex"
+		}
+		if matched {
+			return true, "expected matches"
+		}
+	}
+	return false, "expected matches"
 }
 
 func anyValue(values []string, match func(string) bool) bool {
@@ -272,6 +281,8 @@ func matchBodyPattern(matcher mapping.Matcher, body []byte) (bool, string) {
 		return strings.Contains(content, matcher.Value), "expected contains"
 	case mapping.OperatorEqualTo:
 		return content == matcher.Value, "expected equalTo"
+	case mapping.OperatorMatches:
+		return matchRegexValues([]string{content}, matcher.Value)
 	case mapping.OperatorMatchesJSONPath:
 		return jsonPathExists(matcher.Value, body)
 	case mapping.OperatorMatchesXPath:

@@ -86,6 +86,7 @@ var headerQueryOperators = map[string]struct{}{
 }
 
 var bodyOperators = map[string]struct{}{
+	string(mapping.OperatorMatches):         {},
 	string(mapping.OperatorEqualTo):         {},
 	string(mapping.OperatorContains):        {},
 	string(mapping.OperatorMatchesJSONPath): {},

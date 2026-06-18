@@ -7,6 +7,7 @@ require gopkg.in/yaml.v3 v3.0.1
 require (
 	github.com/antchfx/xmlquery v1.5.1
 	github.com/antchfx/xpath v1.3.6
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/ohler55/ojg v1.28.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/titanous/json5 v1.0.0
