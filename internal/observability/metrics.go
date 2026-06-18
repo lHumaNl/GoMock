@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -81,14 +82,16 @@ func newMetrics(registry *prometheus.Registry) *Metrics {
 }
 
 func (m *Metrics) register(registry *prometheus.Registry) error {
-	collectors := []prometheus.Collector{
+	registered := []prometheus.Collector{
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		m.requestsTotal,
 		m.requestLatency,
 		m.inFlight,
 		m.mappingsLoaded,
 		m.buildInfo,
 	}
-	for _, collector := range collectors {
+	for _, collector := range registered {
 		if err := registry.Register(collector); err != nil {
 			return err
 		}

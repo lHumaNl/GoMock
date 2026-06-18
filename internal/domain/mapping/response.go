@@ -16,6 +16,8 @@ type Response struct {
 	Status          int
 	Headers         map[string]string
 	Body            string
+	BodyBytes       []byte
+	BodyBytesSet    bool
 	BodyFileName    string
 	BodyFileContent []byte
 	Transformers    []string

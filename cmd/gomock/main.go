@@ -61,6 +61,10 @@ func parseFlags(args []string, stdout *os.File, stderr *os.File) (app.Config, bo
 	flags.IntVar(&config.MetricsPort, "metrics-port", config.MetricsPort, "optional metrics port")
 	flags.StringVar(&config.LogLevel, "log-level", config.LogLevel, "debug, info, warn, or error")
 	flags.BoolVar(&config.Strict, "strict", config.Strict, "reject unknown mapping fields")
+	flags.StringVar(&config.Verbose, "verbose", config.Verbose, "traffic logs: off, summary, or full")
+	flags.IntVar(&config.VerboseBodyLimit, "verbose-body-limit", config.VerboseBodyLimit, "max request/response body bytes in full traffic logs")
+	flags.IntVar(&config.VerbosePreviewLimit, "verbose-preview-limit", config.VerbosePreviewLimit, "max request URI characters in summary traffic logs")
+	flags.BoolVar(&config.VerboseRedact, "verbose-redact", config.VerboseRedact, "redact sensitive headers, query parameters, and body fields in traffic logs")
 	err := flags.Parse(args)
 	return config, *showVersion, err
 }

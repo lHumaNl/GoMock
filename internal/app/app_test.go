@@ -84,6 +84,12 @@ func TestApplicationRunsSeparateMetricsServerWhenConfigured(t *testing.T) {
 
 func newTestApplication(t *testing.T, config Config) *Application {
 	t.Helper()
+	if config.VerboseBodyLimit == 0 {
+		config.VerboseBodyLimit = DefaultVerboseBodyLimit
+	}
+	if config.VerbosePreviewLimit == 0 {
+		config.VerbosePreviewLimit = DefaultVerbosePreviewLimit
+	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	application, err := New(config, configloader.NewLoader(false), logger)
 	if err != nil {

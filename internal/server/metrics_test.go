@@ -44,6 +44,9 @@ func TestHandlerMetricsExposeRuntimeGaugesAndBuildInfo(t *testing.T) {
 	assertMetricLabels(t, metrics, "gomock_build_info", []string{
 		`version="test-version"`, `commit="test-commit"`, `go_version="go`,
 	})
+	assertContains(t, metrics, "go_goroutines ")
+	assertContains(t, metrics, "go_memstats_alloc_bytes ")
+	assertProcessMetricsIfAvailable(t, metrics)
 }
 
 func TestHandlerInFlightGaugeTracksRunningRequests(t *testing.T) {
@@ -190,4 +193,20 @@ func assertNotContains(t *testing.T, content string, values ...string) {
 			t.Fatalf("expected metrics not to contain %q", value)
 		}
 	}
+}
+
+func assertContains(t *testing.T, content string, value string) {
+	t.Helper()
+	if !strings.Contains(content, value) {
+		t.Fatalf("expected metrics to contain %q", value)
+	}
+}
+
+func assertProcessMetricsIfAvailable(t *testing.T, metrics string) {
+	t.Helper()
+	if !strings.Contains(metrics, "process_") {
+		t.Log("process metrics are not available on this platform")
+		return
+	}
+	assertContains(t, metrics, "process_")
 }

@@ -45,6 +45,9 @@ func renderTransformedResponse(response mapping.Response, request matcher.Reques
 }
 
 func renderBody(response *mapping.Response, ctx context) error {
+	if response.BodyBytesSet {
+		return nil
+	}
 	if response.BodyFileName != "" {
 		rendered, err := renderString(string(response.BodyFileContent), ctx)
 		response.BodyFileContent = []byte(rendered)

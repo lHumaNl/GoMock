@@ -89,6 +89,7 @@ type Handler struct {
 	sleepTimer  func(*http.Request, time.Duration) bool
 	metrics     RequestMetrics
 	metricsHTTP http.Handler
+	verbose     verboseLogger
 }
 
 func NewHandler(matcher StubMatcher, ready func() bool, logger *slog.Logger) *Handler {
@@ -102,9 +103,21 @@ func NewHandlerWithMetrics(
 	metrics RequestMetrics,
 	metricsHTTP http.Handler,
 ) *Handler {
+	return NewHandlerWithOptions(matcher, ready, logger, metrics, metricsHTTP, VerboseConfig{})
+}
+
+func NewHandlerWithOptions(
+	matcher StubMatcher,
+	ready func() bool,
+	logger *slog.Logger,
+	metrics RequestMetrics,
+	metricsHTTP http.Handler,
+	verbose VerboseConfig,
+) *Handler {
 	return &Handler{matcher: matcher, ready: ready, logger: logger,
 		delays: delay.NewCalculator(), sleepTimer: sleepTimer,
-		metrics: defaultMetrics(metrics), metricsHTTP: metricsHTTP}
+		metrics: defaultMetrics(metrics), metricsHTTP: metricsHTTP,
+		verbose: newVerboseLogger(verbose)}
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -146,19 +159,27 @@ func (h *Handler) handleReady(writer http.ResponseWriter, request *http.Request)
 
 func (h *Handler) handleStub(writer http.ResponseWriter, request *http.Request) {
 	state := newRequestMetricState(request.Method)
+	logState := h.verbose.newState(request)
+	writer = h.verbose.wrap(writer, logState, request.URL.Path)
 	h.metrics.RequestStarted()
 	started := time.Now()
-	defer h.finishRequestMetric(state, started)
-	h.dispatchStub(writer, request, state)
+	defer h.finishRequest(state, started, request, logState)
+	h.dispatchStub(writer, request, state, logState)
 }
 
-func (h *Handler) dispatchStub(writer http.ResponseWriter, request *http.Request, state *requestMetricState) {
+func (h *Handler) dispatchStub(
+	writer http.ResponseWriter,
+	request *http.Request,
+	state *requestMetricState,
+	logState *requestLogState,
+) {
 	model, err := requestModel(request)
 	if err != nil {
 		h.logger.WarnContext(request.Context(), "request body read failed", "error", err)
 		writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "Failed to read request"})
 		return
 	}
+	logState.request = model
 
 	matched, found, err := h.matcher.Match(model)
 	if err != nil {
@@ -185,9 +206,16 @@ func (h *Handler) handleMetrics(writer http.ResponseWriter, request *http.Reques
 	h.metricsHTTP.ServeHTTP(writer, request)
 }
 
-func (h *Handler) finishRequestMetric(state *requestMetricState, started time.Time) {
+func (h *Handler) finishRequest(
+	state *requestMetricState,
+	started time.Time,
+	request *http.Request,
+	logState *requestLogState,
+) {
+	duration := time.Since(started)
 	h.metrics.RequestFinished(state.stub, state.variant, state.method,
-		state.status, state.matched, time.Since(started))
+		state.status, state.matched, duration)
+	h.verbose.log(h.logger, request, state, logState, duration)
 }
 
 func (h *Handler) serveMatched(
@@ -220,6 +248,9 @@ func (h *Handler) applyDelay(request *http.Request, response mapping.Response) b
 }
 
 func (h *Handler) logUnmatched(request *http.Request) {
+	if isProbePath(request.URL.Path) {
+		return
+	}
 	h.logger.WarnContext(request.Context(), "no matching stub", "method", request.Method, "path", request.URL.Path)
 }
 
@@ -228,7 +259,7 @@ func requestModel(request *http.Request) (matcher.Request, error) {
 	if err != nil {
 		return matcher.Request{}, err
 	}
-	return matcher.Request{Method: request.Method, URI: request.URL.RequestURI(), Headers: request.Header, Body: body}, nil
+	return requestModelFromHTTP(request, body), nil
 }
 
 func readRequestBody(request *http.Request) ([]byte, error) {
@@ -248,6 +279,9 @@ func writeResponse(writer http.ResponseWriter, response mapping.Response) {
 }
 
 func responseBody(response mapping.Response) []byte {
+	if response.BodyBytesSet {
+		return response.BodyBytes
+	}
 	if response.BodyFileName != "" {
 		return response.BodyFileContent
 	}

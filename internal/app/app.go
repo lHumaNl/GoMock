@@ -80,9 +80,18 @@ func (a *Application) newMetrics(mappingCount int) (*observability.Metrics, erro
 
 func (a *Application) newMainHandler(service *stub.Service, metrics *observability.Metrics) *server.Handler {
 	if a.separateMetricsServer() {
-		return server.NewHandlerWithMetrics(service, alwaysReady, a.logger, metrics, nil)
+		return server.NewHandlerWithOptions(service, alwaysReady, a.logger, metrics, nil, a.verboseConfig())
 	}
-	return server.NewHandlerWithMetrics(service, alwaysReady, a.logger, metrics, metrics.Handler())
+	return server.NewHandlerWithOptions(service, alwaysReady, a.logger, metrics, metrics.Handler(), a.verboseConfig())
+}
+
+func (a *Application) verboseConfig() server.VerboseConfig {
+	return server.VerboseConfig{
+		Mode:         a.config.Verbose,
+		BodyLimit:    a.config.VerboseBodyLimit,
+		PreviewLimit: a.config.VerbosePreviewLimit,
+		Redact:       a.config.VerboseRedact,
+	}
 }
 
 func (a *Application) separateMetricsServer() bool {

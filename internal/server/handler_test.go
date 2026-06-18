@@ -48,6 +48,32 @@ func TestHandlerServesPreloadedBodyFileContent(t *testing.T) {
 	assertBody(t, response, `{"users":[]}`)
 }
 
+func TestHandlerServesBase64BodyBytes(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{
+		newStub("binary", "/binary", mapping.Response{
+			Status:       http.StatusOK,
+			BodyBytes:    []byte{0x00, 0x01, 0x02},
+			BodyBytesSet: true,
+		}),
+	})
+
+	response := performRequest(handler, http.MethodGet, "/binary")
+
+	assertStatus(t, response, http.StatusOK)
+	assertBodyBytes(t, response, []byte{0x00, 0x01, 0x02})
+}
+
+func TestHandlerMatchesCookiesAndBasicAuth(t *testing.T) {
+	handler := newTestHandler([]mapping.Mapping{secureCookieStub()})
+
+	matched := performSecureRequest(handler, "abc123", "api", "secret")
+	unmatched := performSecureRequest(handler, "abc123", "api", "wrong")
+
+	assertStatus(t, matched, http.StatusOK)
+	assertBody(t, matched, "secure")
+	assertStatus(t, unmatched, http.StatusNotFound)
+}
+
 func TestHandlerReturnsUsefulUnmatched404(t *testing.T) {
 	handler := newTestHandler([]mapping.Mapping{newStub("hello", "/hello", okResponse("ok"))})
 
@@ -214,6 +240,13 @@ func newVariantStub(id string, path string, mode mapping.ResponseMode, variants 
 		URLKind: mapping.URLMatchKindURLPath, URLValue: path}, Responses: &mapping.ResponseSet{Mode: mode, Variants: variants}}
 }
 
+func secureCookieStub() mapping.Mapping {
+	return mapping.Mapping{ID: "secure", Request: mapping.Request{Method: http.MethodGet,
+		URLKind: mapping.URLMatchKindURLPath, URLValue: "/secure",
+		Cookies:   map[string]mapping.Matcher{"session": {Operator: mapping.OperatorContains, Value: "abc"}},
+		BasicAuth: &mapping.BasicAuth{Username: "api", Password: "secret"}}, Response: &mapping.Response{Status: http.StatusOK, Body: "secure"}}
+}
+
 func okResponse(body string) mapping.Response {
 	return mapping.Response{Status: http.StatusOK, Body: body}
 }
@@ -227,6 +260,15 @@ func performRequest(handler http.Handler, method string, path string) *http.Resp
 func performRequestWithBody(handler http.Handler, method string, path string, body string) *http.Response {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	handler.ServeHTTP(recorder, request)
+	return recorder.Result()
+}
+
+func performSecureRequest(handler http.Handler, session string, username string, password string) *http.Response {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/secure", nil)
+	request.AddCookie(&http.Cookie{Name: "session", Value: session})
+	request.SetBasicAuth(username, password)
 	handler.ServeHTTP(recorder, request)
 	return recorder.Result()
 }
@@ -249,6 +291,14 @@ func assertBody(t *testing.T, response *http.Response, want string) {
 	body := readBody(t, response)
 	if body != want {
 		t.Fatalf("expected body %q, got %q", want, body)
+	}
+}
+
+func assertBodyBytes(t *testing.T, response *http.Response, want []byte) {
+	t.Helper()
+	body := readBodyBytes(t, response)
+	if string(body) != string(want) {
+		t.Fatalf("expected body bytes %v, got %v", want, body)
 	}
 }
 
@@ -321,12 +371,17 @@ func userStyleTemplate() string {
 
 func readBody(t *testing.T, response *http.Response) string {
 	t.Helper()
+	return string(readBodyBytes(t, response))
+}
+
+func readBodyBytes(t *testing.T, response *http.Response) []byte {
+	t.Helper()
 	defer closeBody(response.Body)
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read response body: %v", err)
 	}
-	return string(body)
+	return body
 }
 
 func closeBody(body io.Closer) {

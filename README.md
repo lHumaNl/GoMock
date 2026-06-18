@@ -14,7 +14,7 @@ GoMock Standalone is a lightweight WireMock-like mock server written in Go. It r
 - Deterministic mapping selection by priority ascending, specificity descending, and ID ascending.
 - WireMock-like default priority of `5` when `priority` is omitted; explicit lower numbers win.
 - HTTP endpoints for stubs, `/healthz`, `/readyz`, and `/metrics`.
-- Prometheus metrics for request counts, duration, in-flight requests, loaded mappings, and build info.
+- Prometheus metrics for request counts, duration, in-flight requests, loaded mappings, build info, Go runtime, and process data.
 - WireMock-style `response-template` rendering for common migration helpers.
 
 Admin API and runtime reload are intentionally out of scope for the MVP.
@@ -168,8 +168,12 @@ Supported helpers are intentionally small and migration-focused: `jsonPath origi
 - Header names are matched case-insensitively.
 - `url` matches the exact request URI path and query string.
 - `urlPath` matches only the path and ignores the query string.
+- `urlPathTemplate` matches path segments such as `/contacts/{contactId}/addresses/{addressId}` and exposes decoded template variables to `pathParameters` matchers. Encoded slashes such as `%2F` stay within the captured segment and are decoded before value matching.
 - `urlPattern` applies a regular expression to the request URI without scheme or host. GoMock uses Go's RE2 engine for RE2-compatible patterns and falls back to a compatibility engine for WireMock-style lookarounds such as `(?!...)`.
-- Header and query parameter matchers support WireMock `hasExactly` for multi-value matching, e.g. `hasExactly: [{equalTo: "UFONA"}]` requires exactly one value equal to `UFONA`. Nested `hasExactly` matchers may use the currently supported value operators: `equalTo`, `contains`, and `matches`.
+- `urlPathPattern` applies the same regex compatibility behavior to the request path only and ignores the query string.
+- Header, query parameter, and cookie matchers support `equalTo`, `contains`, `matches`, `doesNotContain`, `doesNotMatch`, `absent`, and WireMock `hasExactly`/`includes` for multi-value matching. `includes` allows extra actual values as long as each expected nested matcher matches at least one actual value. Add `caseInsensitive: true` next to `equalTo`, `contains`, or `doesNotContain` for case-insensitive string matching. For `hasExactly`/`includes`, put `caseInsensitive` on each nested matcher that needs it; outer `caseInsensitive` is rejected at startup.
+- `pathParameters` supports value matchers such as `equalTo`, `contains`, `matches`, `doesNotMatch`, and `absent` against variables extracted from `urlPathTemplate`, and startup rejects `pathParameters` unless `urlPathTemplate` is configured.
+- `basicAuth` and `basicAuthCredentials` match HTTP Basic Authorization credentials.
 - `matchesJsonPath` currently performs an existence check only.
 - JSONPath evaluation uses `github.com/ohler55/ojg` because it provides a small Go-native parser/evaluator and lets the domain matcher stay independent of HTTP and filesystem concerns.
 - `matchesXPath` performs an XML XPath node existence check only. It parses the request body as XML and matches when the expression returns at least one node. XPath evaluation uses `github.com/antchfx/xmlquery`, which supports common WireMock SOAP migration expressions including `local-name()` and `normalize-space()` predicates.
@@ -189,7 +193,7 @@ The unmatched response is intentionally fixed for now; custom unmatched response
 
 ## Logging and errors
 
-GoMock writes structured JSON logs to stderr. Use `--log-level debug|info|warn|error` to control verbosity. The default level is `info`.
+GoMock writes structured JSON logs to stderr. Use `--log-level debug|info|warn|error` to control the logger level. The default level is `info`.
 
 - `debug`: matched request details.
 - `info`: startup and mapping-load summary.
@@ -197,6 +201,13 @@ GoMock writes structured JSON logs to stderr. Use `--log-level debug|info|warn|e
 - `error`: startup or response-selection failures.
 
 Mapping load and validation failures include the source file, field, and reason. The loader exposes `configloader.ConfigError` for callers that need structured error details.
+
+Traffic logs are controlled separately with `--verbose=off|summary|full`. The default is `off`.
+
+- `summary`: one JSON log per stub request with a shortened `METHOD URI`, matched flag, stub, variant, status, and duration.
+- `full`: includes summary fields plus request/response headers and bodies.
+
+`--verbose-preview-limit` controls the summary request length, and `--verbose-body-limit` controls captured body bytes for full logs. Both limits must be positive integers. Health, readiness, and metrics probes are never emitted as verbose traffic logs. Redaction is disabled by default so traffic logs show values exactly as received or returned. Pass `--verbose-redact=true` to hide sensitive headers, query parameters, and body fields such as authorization, cookies, tokens, and passwords.
 
 ## Docker usage
 
@@ -227,6 +238,8 @@ Required metrics are exported in Prometheus format:
 - `gomock_inflight_requests`
 - `gomock_mappings_loaded`
 - `gomock_build_info{version,commit,go_version}`
+- Go runtime metrics such as `go_goroutines` and `go_memstats_alloc_bytes`
+- Process metrics such as `process_cpu_seconds_total`, when supported by the platform
 
 Example PromQL:
 
@@ -253,20 +266,27 @@ gomock_build_info{version="dev",commit="unknown",go_version="go1.23.0"} 1
 | `request.method` | Supported | Case-insensitive matching, normalized to uppercase. |
 | `request.url` | Supported | Exact path plus query string. |
 | `request.urlPath` | Supported | Exact path without query string. |
+| `request.urlPathTemplate` | Supported | Segment template matching with decoded variables for `pathParameters`. |
 | `request.urlPattern` | Supported | Regex against request URI; RE2 fast path with compatibility fallback for lookarounds. |
-| `request.headers` | Supported | `equalTo`, `contains`, `matches`, `absent`, and multi-value `hasExactly`. |
-| `request.queryParameters` | Supported | `equalTo`, `contains`, `matches`, `absent`, and multi-value `hasExactly`. |
+| `request.urlPathPattern` | Supported | Regex against path only; same compatibility fallback as `urlPattern`. |
+| `request.headers` | Supported | `equalTo`, `contains`, `matches`, `doesNotContain`, `doesNotMatch`, `absent`, `caseInsensitive` on supported string matchers, and multi-value `hasExactly`/`includes`. |
+| `request.queryParameters` | Supported | `equalTo`, `contains`, `matches`, `doesNotContain`, `doesNotMatch`, `absent`, `caseInsensitive` on supported string matchers, and multi-value `hasExactly`/`includes`. |
+| `request.cookies` | Supported | Parses the Cookie header and applies the same value matchers as headers, including `includes`. |
+| `request.pathParameters` | Supported | Matches variables extracted by `urlPathTemplate`. |
+| `request.basicAuthCredentials` / `request.basicAuth` | Supported | Matches Basic Authorization username and password. |
 | `request.bodyPatterns.contains` | Supported | String containment check. |
 | `request.bodyPatterns.equalTo` | Supported | Exact body string match. |
 | `request.bodyPatterns.matches` | Supported | Regex against the full body string; same regex compatibility behavior as `urlPattern`. |
+| `request.bodyPatterns.doesNotContain` / `doesNotMatch` | Supported | Negative string and regex body checks. |
 | `request.bodyPatterns.matchesJsonPath` | Partial | Existence check only. |
 | `response.status` | Supported | Required for each response or variant. |
 | `response.headers` | Supported | Static response headers. |
 | `response.body` | Supported | Mutually exclusive with `bodyFileName`. |
+| `response.base64Body` | Supported | Decoded and validated at startup, then served as raw bytes. |
 | `response.bodyFileName` | Supported | Loaded from `__files/` at startup with traversal protection. |
 | `response.transformers[].response-template` | Partial | Renders common WireMock helpers in bodies, body files, and headers. Unsupported helpers fail when rendered. |
 | `responses.mode` | GoMock extension | `sequential`, `random`, and `weighted`. |
-| Response delay | GoMock extension + partial WireMock | GoMock `delay` supports `fixed` and `random` using Go duration syntax. WireMock `delayDistribution` supports `uniform` with `lower`/`upper` milliseconds. |
+| Response delay | GoMock extension + partial WireMock | GoMock `delay` supports `fixed` and `random` using Go duration syntax. WireMock `fixedDelayMilliseconds` and `delayDistribution.uniform` use milliseconds. |
 | Top-level `mappings` array | Supported | Each item is loaded as a separate mapping; generated IDs use file name plus item index/name. |
 | `serveEventListeners` | Not supported | Ignored in default mode as an unknown field; rejected by `--strict`. Webhooks are not executed. |
 | WireMock Admin API | Not supported | Intentionally out of MVP scope. |
@@ -281,7 +301,43 @@ make lint   # golangci-lint run ./...
 make fmt    # gofmt all Go files
 make tidy   # go mod tidy
 make bench  # go test -bench=. -benchmem ./...
+make perf   # opt-in local load smoke via scripts/perf-smoke.sh
 make build  # build ./bin/gomock for the current GOOS/GOARCH
+```
+
+## Performance smoke/load testing
+
+Normal `go test ./...` stays fast: the load smoke test under `test/perf` skips unless `GOMOCK_PERF=1` is set. It starts an in-process GoMock HTTP server with generated mappings, runs concurrent local GET load, and logs RPS, latency buckets, status counts, heap usage, GC count, and goroutine deltas after a forced GC.
+
+Run with modest defaults:
+
+```bash
+make perf
+# or
+GOMOCK_PERF=1 go test ./test/perf -run TestPerformanceSmoke -count=1 -v
+```
+
+Tune the local run without external load tools:
+
+```bash
+GOMOCK_PERF_MAPPINGS=500 \
+GOMOCK_PERF_CONCURRENCY=64 \
+GOMOCK_PERF_DURATION=15s \
+./scripts/perf-smoke.sh
+```
+
+Optional profile files can be captured for `go tool pprof`:
+
+```bash
+GOMOCK_PERF_CPU_PROFILE=cpu.pprof \
+GOMOCK_PERF_MEM_PROFILE=heap.pprof \
+./scripts/perf-smoke.sh
+```
+
+For benchmark-style runs, use the pragmatic HTTP server benchmark:
+
+```bash
+go test ./test/perf -run '^$' -bench BenchmarkHTTPServerLoad -benchmem
 ```
 
 Cross-build for a specific target by passing Go toolchain environment values:
@@ -302,7 +358,7 @@ The release script accepts `PLATFORMS`, `OUTPUT_DIR`, `VERSION`, and `COMMIT` en
 
 - `request` is required.
 - Exactly one of `response` or `responses` is required.
-- Exactly one of `request.url`, `request.urlPath`, or `request.urlPattern` is required.
+- Exactly one of `request.url`, `request.urlPath`, `request.urlPathTemplate`, `request.urlPattern`, or `request.urlPathPattern` is required.
 - `response.status` and variant `status` are required.
-- `body` and `bodyFileName` are mutually exclusive.
-- Unsupported operators, modes, invalid regex, invalid delays, and unsafe body file paths fail startup.
+- `body`, `base64Body`, and `bodyFileName` are mutually exclusive.
+- Unsupported operators, unsupported `caseInsensitive` placement, modes, invalid regex, invalid `urlPathTemplate`, invalid delays, invalid base64, and unsafe body file paths fail startup.

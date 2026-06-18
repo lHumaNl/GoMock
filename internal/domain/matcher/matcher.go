@@ -15,18 +15,20 @@ import (
 )
 
 const (
-	methodScore       = 10
-	exactURLScore     = 100
-	urlPathScore      = 80
-	urlPatternScore   = 60
-	namedMatcherScore = 10
-	bodyMatcherScore  = 20
+	methodScore          = 10
+	exactURLScore        = 1000
+	urlPathScore         = 900
+	urlPathTemplateScore = 700
+	urlPatternScore      = 600
+	namedMatcherScore    = 10
+	bodyMatcherScore     = 20
 )
 
 type Request struct {
 	Method  string
 	URI     string
 	Headers map[string][]string
+	Cookies map[string][]string
 	Body    []byte
 }
 
@@ -95,10 +97,11 @@ func matchingCandidates(items []mapping.Mapping, request Request) ([]candidate, 
 }
 
 type matchContext struct {
-	item    mapping.Mapping
-	request Request
-	uri     normalizedURI
-	score   int
+	item           mapping.Mapping
+	request        Request
+	uri            normalizedURI
+	pathParameters map[string]string
+	score          int
 }
 
 func (c *matchContext) match() MatchResult {
@@ -112,6 +115,15 @@ func (c *matchContext) match() MatchResult {
 		return result
 	}
 	if result := c.matchNamed("query", c.item.Request.QueryParameters, c.queryValues); !result.Matched {
+		return result
+	}
+	if result := c.matchNamed("cookie", c.item.Request.Cookies, c.cookieValues); !result.Matched {
+		return result
+	}
+	if result := c.matchNamed("path parameter", c.item.Request.PathParameters, c.pathParameterValues); !result.Matched {
+		return result
+	}
+	if result := c.matchBasicAuth(); !result.Matched {
 		return result
 	}
 	return c.matchBody()
@@ -143,8 +155,12 @@ func (c *matchContext) matchURL() MatchResult {
 		return c.matchExactURL()
 	case mapping.URLMatchKindURLPath:
 		return c.matchURLPath()
+	case mapping.URLMatchKindURLPathTemplate:
+		return c.matchURLPathTemplate()
 	case mapping.URLMatchKindURLPattern:
 		return c.matchURLPattern()
+	case mapping.URLMatchKindURLPathPattern:
+		return c.matchURLPathPattern()
 	default:
 		return c.unmatched("url matcher is not configured")
 	}
@@ -166,6 +182,16 @@ func (c *matchContext) matchURLPath() MatchResult {
 	return c.matched()
 }
 
+func (c *matchContext) matchURLPathTemplate() MatchResult {
+	params, templateScore, ok := matchPathTemplate(c.item.Request.URLValue, c.uri.path)
+	if !ok {
+		return c.unmatched(fmt.Sprintf("urlPathTemplate expected %s", c.item.Request.URLValue))
+	}
+	c.pathParameters = params
+	c.score += urlPathTemplateScore + templateScore
+	return c.matched()
+}
+
 func (c *matchContext) matchURLPattern() MatchResult {
 	matched, err := wiremockregex.MatchString(c.item.Request.URLValue, c.uri.value)
 	if err != nil {
@@ -173,6 +199,18 @@ func (c *matchContext) matchURLPattern() MatchResult {
 	}
 	if !matched {
 		return c.unmatched(fmt.Sprintf("urlPattern expected %s", c.item.Request.URLValue))
+	}
+	c.score += urlPatternScore
+	return c.matched()
+}
+
+func (c *matchContext) matchURLPathPattern() MatchResult {
+	matched, err := wiremockregex.MatchString(c.item.Request.URLValue, c.uri.path)
+	if err != nil {
+		return c.unmatched("urlPathPattern has invalid regex")
+	}
+	if !matched {
+		return c.unmatched(fmt.Sprintf("urlPathPattern expected %s", c.item.Request.URLValue))
 	}
 	c.score += urlPatternScore
 	return c.matched()
@@ -224,6 +262,33 @@ func (c *matchContext) queryValues(name string) []string {
 	return c.uri.query[name]
 }
 
+func (c *matchContext) cookieValues(name string) []string {
+	if values := c.request.Cookies[name]; len(values) > 0 {
+		return values
+	}
+	return cookieHeaderValues(c.headerValues("Cookie"), name)
+}
+
+func (c *matchContext) pathParameterValues(name string) []string {
+	value, ok := c.pathParameters[name]
+	if !ok {
+		return nil
+	}
+	return []string{value}
+}
+
+func (c *matchContext) matchBasicAuth() MatchResult {
+	if c.item.Request.BasicAuth == nil {
+		return c.matched()
+	}
+	username, password, ok := parseBasicAuth(c.headerValues("Authorization"))
+	if !ok || username != c.item.Request.BasicAuth.Username || password != c.item.Request.BasicAuth.Password {
+		return c.unmatched("basicAuth expected configured credentials")
+	}
+	c.score += namedMatcherScore
+	return c.matched()
+}
+
 func sortedMatcherNames(matchers map[string]mapping.Matcher) []string {
 	names := make([]string, 0, len(matchers))
 	for name := range matchers {
@@ -238,13 +303,19 @@ func matchValues(matcher mapping.Matcher, values []string) (bool, string) {
 	case mapping.OperatorAbsent:
 		return len(values) == 0, "expected absent"
 	case mapping.OperatorEqualTo:
-		return anyValue(values, func(value string) bool { return value == matcher.Value }), "expected equalTo"
+		return anyValue(values, func(value string) bool { return equalValue(value, matcher) }), "expected equalTo"
 	case mapping.OperatorContains:
-		return anyValue(values, func(value string) bool { return strings.Contains(value, matcher.Value) }), "expected contains"
+		return anyValue(values, func(value string) bool { return containsValue(value, matcher) }), "expected contains"
+	case mapping.OperatorDoesNotContain:
+		return noValue(values, func(value string) bool { return containsValue(value, matcher) }), "expected doesNotContain"
 	case mapping.OperatorMatches:
-		return matchRegexValues(values, matcher.Value)
+		return matchRegexValues(values, regexExpression(matcher))
+	case mapping.OperatorDoesNotMatch:
+		return notMatchRegexValues(values, regexExpression(matcher))
 	case mapping.OperatorHasExactly:
 		return matchExactlyValues(matcher.ValueMatchers, values)
+	case mapping.OperatorIncludes:
+		return matchIncludedValues(matcher.ValueMatchers, values)
 	default:
 		return false, "has unsupported operator"
 	}
@@ -278,26 +349,19 @@ func exactValueMatchIndex(matcher mapping.Matcher, values []string, used []bool)
 	return -1
 }
 
-func matchRegexValues(values []string, expression string) (bool, string) {
-	compiled, err := wiremockregex.Compile(expression)
-	if err != nil {
-		return false, "has invalid regex"
-	}
-	for _, value := range values {
-		matched, err := compiled.MatchString(value)
-		if err != nil {
-			return false, "has invalid regex"
-		}
-		if matched {
-			return true, "expected matches"
+func matchIncludedValues(matchers []mapping.Matcher, values []string) (bool, string) {
+	for _, matcher := range matchers {
+		if !anyValueMatches(matcher, values) {
+			return false, "expected includes"
 		}
 	}
-	return false, "expected matches"
+	return true, "expected includes"
 }
 
-func anyValue(values []string, match func(string) bool) bool {
+func anyValueMatches(matcher mapping.Matcher, values []string) bool {
 	for _, value := range values {
-		if match(value) {
+		matched, _ := matchValues(matcher, []string{value})
+		if matched {
 			return true
 		}
 	}
@@ -308,11 +372,15 @@ func matchBodyPattern(matcher mapping.Matcher, body []byte) (bool, string) {
 	content := string(body)
 	switch matcher.Operator {
 	case mapping.OperatorContains:
-		return strings.Contains(content, matcher.Value), "expected contains"
+		return containsValue(content, matcher), "expected contains"
+	case mapping.OperatorDoesNotContain:
+		return !containsValue(content, matcher), "expected doesNotContain"
 	case mapping.OperatorEqualTo:
-		return content == matcher.Value, "expected equalTo"
+		return equalValue(content, matcher), "expected equalTo"
 	case mapping.OperatorMatches:
-		return matchRegexValues([]string{content}, matcher.Value)
+		return matchRegexValues([]string{content}, regexExpression(matcher))
+	case mapping.OperatorDoesNotMatch:
+		return notMatchRegexValues([]string{content}, regexExpression(matcher))
 	case mapping.OperatorMatchesJSONPath:
 		return jsonPathExists(matcher.Value, body)
 	case mapping.OperatorMatchesXPath:

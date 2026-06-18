@@ -31,16 +31,27 @@ type rawMapping struct {
 }
 
 type rawRequest struct {
-	Method          string                 `json:"method" yaml:"method"`
-	URL             string                 `json:"url" yaml:"url"`
-	URLPath         string                 `json:"urlPath" yaml:"urlPath"`
-	URLPattern      string                 `json:"urlPattern" yaml:"urlPattern"`
-	QueryParameters map[string]rawOperator `json:"queryParameters" yaml:"queryParameters"`
-	Headers         map[string]rawOperator `json:"headers" yaml:"headers"`
-	BodyPatterns    []rawOperator          `json:"bodyPatterns" yaml:"bodyPatterns"`
+	Method               string                 `json:"method" yaml:"method"`
+	URL                  string                 `json:"url" yaml:"url"`
+	URLPath              string                 `json:"urlPath" yaml:"urlPath"`
+	URLPathTemplate      string                 `json:"urlPathTemplate" yaml:"urlPathTemplate"`
+	URLPattern           string                 `json:"urlPattern" yaml:"urlPattern"`
+	URLPathPattern       string                 `json:"urlPathPattern" yaml:"urlPathPattern"`
+	QueryParameters      map[string]rawOperator `json:"queryParameters" yaml:"queryParameters"`
+	Headers              map[string]rawOperator `json:"headers" yaml:"headers"`
+	Cookies              map[string]rawOperator `json:"cookies" yaml:"cookies"`
+	PathParameters       map[string]rawOperator `json:"pathParameters" yaml:"pathParameters"`
+	BodyPatterns         []rawOperator          `json:"bodyPatterns" yaml:"bodyPatterns"`
+	BasicAuth            *rawBasicAuth          `json:"basicAuth" yaml:"basicAuth"`
+	BasicAuthCredentials *rawBasicAuth          `json:"basicAuthCredentials" yaml:"basicAuthCredentials"`
 }
 
 type rawOperator map[string]any
+
+type rawBasicAuth struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
+}
 
 type rawResponse struct {
 	Name              string                `json:"name" yaml:"name"`
@@ -48,10 +59,12 @@ type rawResponse struct {
 	Status            *int                  `json:"status" yaml:"status"`
 	Headers           map[string]string     `json:"headers" yaml:"headers"`
 	Body              *string               `json:"body" yaml:"body"`
+	Base64Body        *string               `json:"base64Body" yaml:"base64Body"`
 	BodyFileName      string                `json:"bodyFileName" yaml:"bodyFileName"`
 	Transformers      []string              `json:"transformers" yaml:"transformers"`
 	Delay             *rawDelay             `json:"delay" yaml:"delay"`
 	DelayDistribution *rawDelayDistribution `json:"delayDistribution" yaml:"delayDistribution"`
+	FixedDelayMS      *int                  `json:"fixedDelayMilliseconds" yaml:"fixedDelayMilliseconds"`
 }
 
 type rawResponses struct {

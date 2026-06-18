@@ -1,4 +1,4 @@
-.PHONY: test race lint fmt tidy bench build release
+.PHONY: test race lint fmt tidy bench perf build release
 
 BINARY ?= gomock
 OUTPUT_DIR ?= bin
@@ -33,6 +33,9 @@ tidy:
 
 bench:
 	go test -bench=. -benchmem ./...
+
+perf:
+	./scripts/perf-smoke.sh
 
 build:
 	mkdir -p $(OUTPUT_DIR)
