@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run tests
+        run: make test
+
+  build:
+    name: Build release archives
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release artifacts
+        run: VERSION=${GITHUB_REF_NAME} ./scripts/build-release.sh
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gomock-release-${{ github.ref_name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          retention-days: 7
+
+  create-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Write release notes
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %h %s" "${PREVIOUS_TAG}..HEAD")
+          else
+            CHANGELOG="- Initial release"
+          fi
+          [ -n "$CHANGELOG" ] || CHANGELOG="- No changes in this release"
+          CHECKSUMS=$(find artifacts -name SHA256SUMS.txt -exec cat {} \;)
+          cat > release_notes.md << EOF
+          # GoMock ${VERSION}
+
+          ## Installation
+
+          Download the archive for your platform, unpack it, and place the
+          `gomock` binary on your PATH.
+
+          ## Checksums
+
+          \`\`\`
+          ${CHECKSUMS}
+          \`\`\`
+
+          ## Changelog
+
+          ${CHANGELOG}
+          EOF
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/SHA256SUMS.txt
+          body_path: release_notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
