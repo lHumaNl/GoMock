@@ -1,5 +1,26 @@
 package configloader
 
+type rawMappingFile struct {
+	ID        string        `json:"id" yaml:"id"`
+	Name      string        `json:"name" yaml:"name"`
+	Priority  *int          `json:"priority" yaml:"priority"`
+	Request   *rawRequest   `json:"request" yaml:"request"`
+	Response  *rawResponse  `json:"response" yaml:"response"`
+	Responses *rawResponses `json:"responses" yaml:"responses"`
+	Mappings  []rawMapping  `json:"mappings" yaml:"mappings"`
+}
+
+func (r rawMappingFile) singleMapping() rawMapping {
+	return rawMapping{
+		ID:        r.ID,
+		Name:      r.Name,
+		Priority:  r.Priority,
+		Request:   r.Request,
+		Response:  r.Response,
+		Responses: r.Responses,
+	}
+}
+
 type rawMapping struct {
 	ID        string        `json:"id" yaml:"id"`
 	Name      string        `json:"name" yaml:"name"`

@@ -7,7 +7,7 @@ GoMock Standalone is a lightweight WireMock-like mock server written in Go. It r
 - Go module and `cmd/gomock` CLI skeleton.
 - Clean package layout for app, domain, config loading, and file resolution.
 - First-level loading from JSON5-compatible `mappings/*.json`, `mappings/*.yaml`, and `mappings/*.yml`.
-- Stable generated mapping IDs from file names when `id` is omitted.
+- Stable generated mapping IDs from file names when `id` is omitted; WireMock `mappings` arrays include the item index/name to keep IDs unique.
 - Startup validation with file path and clear field reasons.
 - Safe `bodyFileName` loading from `__files` with path traversal protection.
 - Pure matching engine for method, URL, header, query, and body matchers.
@@ -55,7 +55,7 @@ make build
 
 Mappings live in the first level of `mappings/` and may be JSON, YAML, or YML. Response files are loaded from `__files/` during startup.
 
-`.json` mapping files are JSON5-compatible to ease migration from WireMock exports and hand-maintained stubs. They accept `//` and `/* */` comments, trailing commas, single-quoted strings, and unquoted object keys. YAML parsing is unchanged. Use `--strict` when you want startup to reject unknown mapping fields after JSON5 decoding.
+`.json` mapping files are JSON5-compatible to ease migration from WireMock exports and hand-maintained stubs. They accept `//` and `/* */` comments, trailing commas, single-quoted strings, and unquoted object keys. A file may contain either one mapping object or a WireMock-style top-level `{ "mappings": [...] }` object; each array item is loaded as a separate mapping. YAML parsing is unchanged. Use `--strict` when you want startup to reject unknown mapping fields after JSON5 decoding.
 
 ### Inline response
 
@@ -218,6 +218,8 @@ gomock_build_info{version="dev",commit="unknown",go_version="go1.23.0"} 1
 | `response.bodyFileName` | Supported | Loaded from `__files/` at startup with traversal protection. |
 | `responses.mode` | GoMock extension | `sequential`, `random`, and `weighted`. |
 | Response delay | GoMock extension | `fixed` and `random` using Go duration syntax. |
+| Top-level `mappings` array | Supported | Each item is loaded as a separate mapping; generated IDs use file name plus item index/name. |
+| `serveEventListeners` | Not supported | Ignored in default mode as an unknown field; rejected by `--strict`. Webhooks are not executed. |
 | WireMock Admin API | Not supported | Intentionally out of MVP scope. |
 | Runtime mapping reload | Not supported | Intentionally out of MVP scope. |
 

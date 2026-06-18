@@ -42,6 +42,63 @@ func TestLoadRootLoadsJSON5CompatibleMapping(t *testing.T) {
 	assertLoadedJSON5Mapping(t, items[0])
 }
 
+func TestLoadRootLoadsWireMockMappingsArray(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/CALLBACK_ow.json", wireMockMappingsArray())
+
+	items, err := NewLoader(false).LoadRoot(root)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 mappings, got %d", len(items))
+	}
+	if items[0].ID != "CALLBACK_ow-0-callback-created" {
+		t.Fatalf("unexpected generated first mapping ID %q", items[0].ID)
+	}
+	if items[1].ID != "CALLBACK_ow-1" {
+		t.Fatalf("unexpected generated second mapping ID %q", items[1].ID)
+	}
+	if items[0].Name != "Callback Created" || items[0].Request.URLValue != "/callback" {
+		t.Fatalf("unexpected first mapping: %#v", items[0])
+	}
+	if items[1].Request.URLValue != "/callback/2" || items[1].Response.Status != 201 {
+		t.Fatalf("unexpected second mapping: %#v", items[1])
+	}
+}
+
+func TestLoadRootMappingsArrayReportsItemIndexInErrors(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/bad.json", `{
+	  "mappings": [
+	    {"request": {"urlPath": "/ok"}, "response": {"status": 200}},
+	    {"response": {"status": 200}}
+	  ]
+	}`)
+
+	err := loadRootError(root)
+
+	assertErrorContains(t, err, "bad.json:mappings[1]", "request", "is required")
+}
+
+func TestLoadRootStrictModeRejectsUnsupportedWireMockMappingFields(t *testing.T) {
+	root := newMockRoot(t)
+	writeFile(t, root, "mappings/strict.json", `{
+	  "mappings": [
+	    {
+	      "request": {"urlPath": "/callback"},
+	      "response": {"status": 200},
+	      "serveEventListeners": [{"name": "webhook"}]
+	    }
+	  ]
+	}`)
+
+	_, err := NewLoader(true).LoadRoot(root)
+
+	assertErrorContains(t, err, "strict.json", "unknown", "serveEventListeners")
+}
+
 func TestLoadRootRejectsMissingRequest(t *testing.T) {
 	root := newMockRoot(t)
 	writeFile(t, root, "mappings/bad.yaml", "response:\n  status: 200\n")
@@ -233,6 +290,24 @@ func json5CompatibleMapping() string {
     status: 200,
     body: '{"ok":true}',
   },
+}`
+}
+
+func wireMockMappingsArray() string {
+	return `// JSON5-style comment for WireMock migration.
+{
+  mappings: [
+    {
+      name: 'Callback Created',
+      request: {method: 'post', urlPath: '/callback'},
+      response: {status: 200, body: 'ok'},
+      serveEventListeners: [{name: 'webhook', parameters: {}}],
+    },
+    {
+      request: {method: 'post', urlPath: '/callback/2'},
+      response: {status: 201, body: 'created'},
+    },
+  ],
 }`
 }
 
